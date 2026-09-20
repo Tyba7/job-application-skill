@@ -270,7 +270,7 @@ python renderer.py \
 - `README.md` — role summary, fit analysis, interview prep focus, follow-up schedule
 - `jd.xlsx` — full JD + extracted fields (immutable archive)
 
-**Phone/contact:** Reads from constants in the script: +971589448527, tayyabarizwan87@gmail.com, Dubai UAE, linkedin.com/in/tayyaba-rizwan-3b0400248, github.com/Tyba7
+**Phone/contact:** Reads from `.app_config.json` (gitignored local config). See `config_template.json` for the structure.
 
 **Alternatives:**
 - For batch CV generation from master: `generate_cvs.py` (standalone, in vestwell_contact_center root)
