@@ -1,0 +1,4 @@
+# Local config (.app_config.json) — personal info, never committed
+# Template: config_template.json
+
+.app_config.json

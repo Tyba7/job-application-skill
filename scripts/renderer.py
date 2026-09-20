@@ -33,14 +33,58 @@ from docx.oxml import OxmlElement
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill
 
-# ── Constants ──────────────────────────────────────────────────────────────
+# ── Load candidate config from .app_config.json (gitignored) ────────────────
+# Falls back to config_template.json, then to hardcoded defaults if neither exists.
 
-NAME = "Tayyaba Rizwan"
-EMAIL = "tayyabarizwan87@gmail.com"
-PHONE = "+971589448527"
-LOCATION = "Dubai, UAE"
-LINKEDIN = "linkedin.com/in/tayyaba-rizwan-3b0400248"
-GITHUB = "github.com/Tyba7"
+import importlib.util
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def load_config():
+    """Load candidate config from .app_config.json (gitignored local file)."""
+    config = {}
+
+    # Try .app_config.json first (local, gitignored)
+    config_path = os.path.join(SCRIPT_DIR, ".app_config.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path) as f:
+                config = json.load(f)
+            if "candidate" in config:
+                return config["candidate"]
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    # Try config_template.json as fallback
+    template_path = os.path.join(SCRIPT_DIR, "config_template.json")
+    if os.path.exists(template_path):
+        try:
+            with open(template_path) as f:
+                config = json.load(f)
+            if "candidate" in config:
+                return config["candidate"]
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    # Hardcoded defaults — last resort
+    return {
+        "name": "Tayyaba Rizwan",
+        "email": "tayyabarizwan87@gmail.com",
+        "phone": "+971****8527",
+        "location": "Dubai, UAE",
+        "linkedin": "linkedin.com/in/tayyaba-rizwan-3b0400248",
+        "github": "github.com/Tyba7",
+    }
+
+
+CANDIDATE = load_config()
+NAME = CANDIDATE.get("name", "Your Name")
+EMAIL = CANDIDATE.get("email", "your.email@example.com")
+PHONE = CANDIDATE.get("phone", "+971****XXXX")
+LOCATION = CANDIDATE.get("location", "City, Country")
+LINKEDIN = CANDIDATE.get("linkedin", "linkedin.com/in/yourprofile")
+GITHUB = CANDIDATE.get("github", "github.com/yourhandle")
 TODAY = date.today().isoformat()
 
 # Usable width for tight CV formatting (15.88mm margins on A4)
