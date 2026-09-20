@@ -22,13 +22,11 @@ import subprocess
 from datetime import date, timezone
 from pathlib import Path
 
-# ── Lazy hermes_tools import ────────────────────────────────────────────────
-try:
-    from hermes_tools import web_search, web_extract
-    HERMES_AVAILABLE = True
-except ImportError:
-    HERMES_AVAILABLE = False
-    web_search = web_extract = None
+# ── Lazy hermes_tools import — must be inside main(), not module level ─────
+
+HERMES_AVAILABLE = False
+HERMES_WEB_SEARCH = None
+HERMES_WEB_EXTRACT = None
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATE_STR = date.today().isoformat()
@@ -42,13 +40,30 @@ def fail(msg):
     print(f"[pipeline] ERROR: {msg}", file=sys.stderr, flush=True)
 
 
+def get_hermes_tools():
+    """Lazy import hermes_tools — only available inside Hermes runtime."""
+    global HERMES_WEB_SEARCH, HERMES_WEB_EXTRACT, HERMES_AVAILABLE
+    if HERMES_WEB_SEARCH is not None:
+        return HERMES_WEB_SEARCH, HERMES_WEB_EXTRACT
+    try:
+        from hermes_tools import web_search, web_extract
+        HERMES_WEB_SEARCH = web_search
+        HERMES_WEB_EXTRACT = web_extract
+        HERMES_AVAILABLE = True
+        return web_search, web_extract
+    except ImportError:
+        HERMES_AVAILABLE = False
+        return None, None
+
+
 # ── Phase 1: Discover ───────────────────────────────────────────────────────
 
 def phase1_discover(query: str, max_jobs: int, output_dir: str) -> list[dict]:
     """Search multiple platforms for UAE AI/ML jobs. Returns ranked list."""
     log(f"Phase 1: Discovering jobs for '{query}' (max {max_jobs})")
 
-    if not HERMES_AVAILABLE:
+    web_search_fn, _ = get_hermes_tools()
+    if web_search_fn is None:
         fail("hermes_tools not available — run inside Hermes")
         return []
 
@@ -66,7 +81,7 @@ def phase1_discover(query: str, max_jobs: int, output_dir: str) -> list[dict]:
     for i, search_query in enumerate(platforms):
         log(f"  Searching platform {i+1}/5: {search_query[:60]}...")
         try:
-            results = web_search(search_query, limit=10)
+            result = web_search_fn(search_query, limit=10)
             for item in results.get("data", {}).get("web", []):
                 url = item.get("url", "")
                 if not url or url in seen_urls:
@@ -193,6 +208,13 @@ def phase3_research(live_jobs: list[dict], output_dir: str) -> list[dict]:
     """Research each company via web_search."""
     log(f"Phase 3: Researching {len(live_jobs)} companies")
 
+    _, web_extract_fn = get_hermes_tools()
+    if web_extract_fn is None:  # web_search is same module
+        fail("hermes_tools not available — run inside Hermes")
+        return []
+
+    web_search_fn = web_extract_fn  # same hermes_tools module
+
     research_file = os.path.join(output_dir, "company_research.json")
 
     research_results = []
@@ -211,7 +233,7 @@ def phase3_research(live_jobs: list[dict], output_dir: str) -> list[dict]:
             findings = {}
             for s in searches:
                 try:
-                    r = web_search(s, limit=3)
+                    r = web_search_fn(s, limit=3)
                     findings[s] = len(r.get("data", {}).get("web", []))
                 except:
                     findings[s] = 0
