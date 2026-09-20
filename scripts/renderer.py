@@ -67,14 +67,14 @@ def load_config():
         except (json.JSONDecodeError, KeyError):
             pass
 
-    # Hardcoded defaults — last resort
+    # Hardcoded defaults — last resort (placeholders, replace via .app_config.json)
     return {
-        "name": "Tayyaba Rizwan",
-        "email": "tayyabarizwan87@gmail.com",
-        "phone": "+971****8527",
-        "location": "Dubai, UAE",
-        "linkedin": "linkedin.com/in/tayyaba-rizwan-3b0400248",
-        "github": "github.com/Tyba7",
+        "name": "Your Name",
+        "email": "your.email@example.com",
+        "phone": "+971****XXXX",
+        "location": "City, Country",
+        "linkedin": "linkedin.com/in/yourprofile",
+        "github": "github.com/yourhandle",
     }
 
 

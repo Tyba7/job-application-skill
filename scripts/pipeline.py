@@ -550,7 +550,7 @@ def main():
     parser.add_argument("--max-jobs", type=int, default=20, help="Maximum jobs to discover")
     parser.add_argument("--output-dir", required=True, help="Output directory for all artifacts")
     parser.add_argument("--cv", help="Path to base CV .docx (optional — skip render/match if omitted)")
-    parser.add_argument("--github-repo", help="GitHub repo for tracking (e.g. Tyba7/job-tracker)")
+    parser.add_argument("--github-repo", help="GitHub repo for tracking (e.g. OWNER/job-tracker)")
     parser.add_argument("--steps", help="Comma-separated phase numbers to run (default: all). e.g. '1,2,4'")
     args = parser.parse_args()
 

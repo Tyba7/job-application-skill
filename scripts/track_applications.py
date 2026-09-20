@@ -7,8 +7,8 @@ Never appends — always rebuilds from what's actually on disk.
 
 Usage:
   python track_applications.py \
-    --root /Users/tayyabarizwan/vestwell_contact_center/applications/2026-09-18 \
-    --output /Users/tayyabarizwan/vestwell_contact_center/applications/2026-09-18/applications.csv
+    --root /path/to/applications/<date> \
+    --output /path/to/applications/<date>/applications.csv
 
 Reads each company subfolder, detects what files exist (cv.docx, cover_letter.docx,
 jd.xlsx, README.md), and writes one CSV row per company with the correct status.
