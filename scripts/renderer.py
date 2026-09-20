@@ -15,7 +15,7 @@ Usage:
     --output-dir /path/to/company_folder \
     --company G42 \
     --role "AI Engineer" \
-    --name "Tayyaba Rizwan"
+    --name "Your Name"
 
 Returns JSON with paths to all generated files.
 """
