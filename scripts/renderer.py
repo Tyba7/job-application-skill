@@ -23,6 +23,7 @@ Returns JSON with paths to all generated files.
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, date
 from docx import Document
@@ -216,6 +217,16 @@ def render_cv(base_cv_path, jd, output_path, company, role):
             else:
                 set_run_font(r, size_pt=10.5)
 
+    # Bold ALL CAPS section headers (PROFESSIONAL SUMMARY, EXPERIENCE, etc.)
+    # AFTER resizing, so set_run_font's bold=False default doesn't clobber them.
+    for p in doc.paragraphs:
+        t = p.text.strip()
+        if t and len(t) < 60 and t == t.upper() and not t.startswith("http") and "://" not in t:
+            # Skip the name line (already centered + bold, handled above via header_sizes)
+            if p.alignment != WD_ALIGN_PARAGRAPH.CENTER:
+                for r in p.runs:
+                    r.bold = True
+
     fix_bullet_fonts(doc, size_pt=11)
 
     # ── 4. Fix margins ───────────────────────────────────────────────────
@@ -247,9 +258,20 @@ def render_cover_letter(jd, cv_evidence, output_path, company, role):
     gaps = cv_evidence.get("gaps", [])
     gap_text = ""
     if gaps:
+        gap = gaps[0]
+        # Handle both dict format {"skill": ..., "actual": ..., "required": ...}
+        # and string format "Azure ecosystem"
+        if isinstance(gap, dict):
+            gap_skill = gap.get("skill", "a relevant technology")
+            gap_actual = gap.get("actual", "AWS/GCP")
+            gap_required = gap.get("required", "Azure")
+        else:
+            gap_skill = str(gap)
+            gap_actual = "AWS/GCP"
+            gap_required = str(gap)
         gap_text = (
-            f"My {gaps[0]['skill']} experience has been with {gaps[0].get('actual', 'AWS/GCP')} "
-            f"rather than {gaps[0].get('required', 'Azure')}, though the underlying concepts "
+            f"My {gap_skill} experience has been with {gap_actual} "
+            f"rather than {gap_required}, though the underlying concepts "
             f"transfer directly."
         )
 
@@ -365,12 +387,26 @@ def render_readme(jd, cv_evidence, output_path, company, role, apply_url):
 ### Matches
 """
     for m in match_details:
-        readme += f"- **{m['skill']}:** {m['status']} — {m.get('evidence', 'CV')}\n"
+        if isinstance(m, dict):
+            skill = m.get("skill", "unknown")
+            status = m.get("status", "?")
+            evidence = m.get("evidence", "CV")
+        else:
+            skill = str(m)
+            status = "?"
+            evidence = "CV"
+        readme += f"- **{skill}:** {status} — {evidence}\n"
 
     if gaps:
         readme += "\n### Gaps\n"
         for g in gaps:
-            readme += f"- **{g['skill']}:** {g.get('note', 'Gap against JD')}\n"
+            if isinstance(g, dict):
+                gskill = g.get("skill", "unknown")
+                gnote = g.get("note", "Gap against JD")
+            else:
+                gskill = str(g)
+                gnote = "Gap against JD"
+            readme += f"- **{gskill}:** {gnote}\n"
 
     readme += f"""
 ## Interview Prep Focus
@@ -472,8 +508,15 @@ def main():
 
     results = {}
 
-    # 1. Render CV
-    cv_path = os.path.join(args.output_dir, f"{args.cv_name}_{args.company}_{args.role}.docx")
+    # 1. Render CV — sanitize filenames: collapse non-alphanumeric in role, cap length
+    # Company comes from the folder name (already filesystem-safe, use as-is)
+    safe_company = args.company
+    safe_role = re.sub(r"[^a-zA-Z0-9]+", "_", args.role).strip("_")
+    # Cap role portion to keep filenames sane
+    MAX_ROLE_LEN = 40
+    if len(safe_role) > MAX_ROLE_LEN:
+        safe_role = safe_role[:MAX_ROLE_LEN].rstrip("_")
+    cv_path = os.path.join(args.output_dir, f"{args.cv_name}_{safe_company}_{safe_role}.docx")
     render_cv(args.cv_base, jd, cv_path, args.company, args.role)
     results["cv"] = cv_path
 
@@ -483,7 +526,7 @@ def main():
         "fit_score": jd.get("fit_score", "UNKNOWN"),
         "match_details": jd.get("match_details", []),
     }
-    cl_path = os.path.join(args.output_dir, f"CoverLetter_{args.company}_{args.role}.docx")
+    cl_path = os.path.join(args.output_dir, f"CoverLetter_{safe_company}_{safe_role}.docx")
     render_cover_letter(jd, cv_evidence, cl_path, args.company, args.role)
     results["cover_letter"] = cl_path
 

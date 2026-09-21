@@ -10,7 +10,7 @@ Usage:
     --root /path/to/applications/<date> \
     --output /path/to/applications/<date>/applications.csv
 
-Reads each company subfolder, detects what files exist (cv.docx, cover_letter.docx,
+Reads each company subfolder, detects what files exist (CV_*.docx, CoverLetter_*.docx,
 jd.xlsx, README.md), and writes one CSV row per company with the correct status.
 
 CSV columns:
@@ -38,45 +38,48 @@ STATUS_FROM_FILES = {
     frozenset(["jd.xlsx"]): "EXTRACTED",
     # JD + README
     frozenset(["jd.xlsx", "README.md"]): "EXTRACTED",
-    # CV generated
-    frozenset(["cv.docx"]): "GENERATED",
-    # CV + README
-    frozenset(["cv.docx", "README.md"]): "GENERATED",
-    # CV + cover letter
-    frozenset(["cv.docx", "cover_letter.docx"]): "QA-PASS",
-    # Full set
-    frozenset(["cv.docx", "cover_letter.docx", "jd.xlsx", "README.md"]): "APPLIED",
-    # CV + CL + README
-    frozenset(["cv.docx", "cover_letter.docx", "README.md"]): "QA-PASS",
-    # CV + CL + jd
-    frozenset(["cv.docx", "cover_letter.docx", "jd.xlsx"]): "QA-PASS",
+    # CV generated (CV_*.docx)
+    frozenset(["README.md"]): "RESEARCHED",  # CV present but tracker doesn't know the exact name
 }
+
+# Note: the STATUS_FROM_FILES table above uses exact filenames, but our renderer
+# produces CV_<Company>_<Role>.docx and CoverLetter_<Company>_<Role>.docx with
+# filesystem-safe names. The infer_status() function below handles the detection
+# by file prefix pattern rather than exact name matching.
 
 # Status override markers — if a folder contains a STATUS file, use it
 STATUS_FILE = "status.txt"
 
 
+def has_cv(files):
+    """Check if any file starts with CV_ and ends with .docx."""
+    return any(f.startswith("CV_") and f.endswith(".docx") for f in files)
+
+def has_cover_letter(files):
+    """Check if any file starts with CoverLetter_ and ends with .docx."""
+    return any(f.startswith("CoverLetter_") and f.endswith(".docx") for f in files)
+
+
 def infer_status(files):
     """Infer application status from the set of files in a folder."""
-    file_set = frozenset(files)
     # Check for explicit status file first
     if STATUS_FILE in files:
         return "CUSTOM"
 
-    # Match against known patterns (most specific first)
-    for known_set, status in sorted(STATUS_FROM_FILES.items(),
-                                      key=lambda x: -len(x[0])):
-        if file_set == known_set:
-            return status
+    cv = has_cv(files)
+    cl = has_cover_letter(files)
+    has_jd = "jd.xlsx" in files
+    has_readme = "README.md" in files
 
-    # Partial matches — find the closest known state
-    if "cv.docx" in file_set and "cover_letter.docx" in file_set:
+    if cv and cl and has_jd and has_readme:
+        return "APPLIED"
+    if cv and cl:
         return "QA-PASS"
-    if "cv.docx" in file_set:
+    if cv:
         return "GENERATED"
-    if "jd.xlsx" in file_set:
+    if has_jd:
         return "EXTRACTED"
-    if "README.md" in file_set:
+    if has_readme:
         return "RESEARCHED"
     return "DISCOVERED"
 

@@ -67,21 +67,55 @@ def phase1_discover(query: str, max_jobs: int, output_dir: str) -> list[dict]:
         fail("hermes_tools not available — run inside Hermes")
         return []
 
+    # Discovery queries — targeted to surface individual job postings, not
+    # category/aggregator pages. Each query names a specific company, role, or
+    # platform known to host UAE AI/ML listings.
     platforms = [
-        f"'AI engineer' {query} site:indeed.ae",
-        f"'machine learning engineer' {query} site:indeed.ae",
-        f"'genai engineer' {query} site:bayt.com",
-        f"'AI engineer' {query} site:linkedin.com/jobs",
-        f"'machine learning' {query} site:naukrigulf.com",
+        # Indeed — specific role + location queries (not generic "AI engineer UAE")
+        f"AI Engineer Abu Dhabi site:indeed.ae",
+        f"Machine Learning Engineer Dubai site:indeed.ae",
+        f"LLM Engineer UAE site:indeed.ae",
+        f"GenAI Engineer Dubai site:indeed.ae",
+        f"AI Research Engineer Abu Dhabi site:indeed.ae",
+        # Bayt — specific role pages
+        f"AI Engineer UAE site:bayt.com",
+        f"ML Engineer Abu Dhabi site:bayt.com",
+        f"GenAI Engineer UAE site:bayt.com",
+        # LinkedIn
+        f"AI Engineer Dubai site:linkedin.com/jobs",
+        f"Machine Learning Engineer UAE site:linkedin.com/jobs",
+        # NaukriGulf
+        f"AI Engineer Dubai site:naukrigulf.com",
+        f"ML Engineer Abu Dhabi site:naukrigulf.com",
+        # User-requested additions
+        f"AI Engineer UAE site:remote.com",
+        f"Machine Learning Engineer UAE site:himalayas.app",
+    ]
+
+    platform_names = [
+        "Indeed: AI Eng Abu Dhabi",
+        "Indeed: ML Eng Dubai",
+        "Indeed: LLM Eng UAE",
+        "Indeed: GenAI Eng Dubai",
+        "Indeed: AI Research Eng Abu Dhabi",
+        "Bayt: AI Engineer UAE",
+        "Bayt: ML Engineer Abu Dhabi",
+        "Bayt: GenAI Engineer UAE",
+        "LinkedIn: AI Engineer Dubai",
+        "LinkedIn: ML Engineer UAE",
+        "Naukrigulf: AI Engineer Dubai",
+        "Naukrigulf: ML Engineer Abu Dhabi",
+        "Remote.com: AI Engineer UAE",
+        "Himalayas: ML Engineer UAE",
     ]
 
     all_jobs = []
     seen_urls = set()
 
     for i, search_query in enumerate(platforms):
-        log(f"  Searching platform {i+1}/5: {search_query[:60]}...")
+        log(f"  Searching platform {i+1}/7: {search_query[:60]}...")
         try:
-            result = web_search_fn(search_query, limit=10)
+            results = web_search_fn(search_query, limit=10)
             for item in results.get("data", {}).get("web", []):
                 url = item.get("url", "")
                 if not url or url in seen_urls:
@@ -91,10 +125,31 @@ def phase1_discover(query: str, max_jobs: int, output_dir: str) -> list[dict]:
                 title = item.get("title", "").strip()
                 desc = item.get("description", "").strip()
 
-                # Basic filtering — skip non-job results
-                if any(skip in title.lower() for skip in ["login", "sign in", "jobs@"]):
+                # Job-quality filter: distinguish real postings from aggregator/list pages.
+                # Primary signal is body content. Title-level "N+ Role Jobs, Employment DATE"
+                # pattern is a weak secondary signal because Indeed shows both categories and
+                # individual listings via search results with the same title format.
+                desc_lower = desc.lower()
+                title_lower = title.lower()
+                body_is_list = any(s in desc_lower for s in [
+                    "discover ", "find ", "search ", "results ", "view all",
+                    "make your job", "job opportunities in",
+                ])
+                title_looks_category = "employment" in title_lower and "+" in title
+                has_posting = any(s in desc_lower for s in [
+                    "we are seeking", "we are looking", "responsibilities",
+                    "requirements", "qualifications", "about the role",
+                    "the ideal candidate", "your role", "your responsibilities",
+                    "you will", "this role", "based in", "our client",
+                ])
+                # Skip if the body clearly reads like a list/category page
+                if body_is_list:
                     continue
-                if "job" not in (title + desc).lower() and "engineer" not in title.lower() and "hiring" not in desc.lower():
+                # Skip obvious category-page titles when the body has no posting language
+                if title_looks_category and not has_posting:
+                    continue
+                # Skip if no posting-specific language AND no engineer/hiring signal
+                if not has_posting and "engineer" not in title_lower and "hiring" not in desc_lower:
                     continue
 
                 all_jobs.append({
@@ -146,7 +201,7 @@ def phase1b_github_discover(query: str, output_dir: str) -> list[dict]:
     try:
         result = subprocess.run(
             [sys.executable, script, "--query", query, "--output", output_file],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=120,
             cwd=SCRIPT_DIR
         )
         if result.returncode == 0 and os.path.exists(output_file):
@@ -165,13 +220,32 @@ def phase1b_github_discover(query: str, output_dir: str) -> list[dict]:
 
 # ── Phase 2: Verify Links ───────────────────────────────────────────────────
 
-def phase2_verify(jobs: list[dict], output_dir: str) -> list[dict]:
-    """Verify all discovered job links are still live."""
-    log(f"Phase 2: Verifying {len(jobs)} links")
+def phase2_verify(output_dir: str) -> list[dict]:
+    """Verify selected job links are still live.
+
+    Looks for selected_jobs.json first (user-picked subset). Falls back to
+    discovered_jobs.json if no selection was made.
+    """
+    log("Phase 2: Verifying selected links")
+
+    selected_file = os.path.join(output_dir, "selected_jobs.json")
+    discovered_file = os.path.join(output_dir, "discovered_jobs.json")
+
+    if os.path.exists(selected_file):
+        with open(selected_file) as f:
+            jobs = json.load(f)
+        log(f"  Using user-selected {len(jobs)} jobs from selected_jobs.json")
+    elif os.path.exists(discovered_file):
+        with open(discovered_file) as f:
+            data = json.load(f)
+        jobs = data.get("jobs", [])
+        log(f"  No selection found — using all {len(jobs)} discovered jobs")
+    else:
+        log("  No jobs file found — skipping verification")
+        return []
 
     if not jobs:
         return []
-
     links_file = os.path.join(output_dir, "links_to_verify.json")
     verified_file = os.path.join(output_dir, "verified_jobs.json")
 
@@ -560,7 +634,7 @@ def main():
     # Determine which phases to run
     all_steps = [1, 1, 2, 3, 3, 4, 5, 6, 7, 8]  # 1b,3b use same numbers
     if args.steps:
-        wanted = set(int(s.strip()) for s in args.steps.split(","))
+        wanted = set(int(s.strip().rstrip("bc")) for s in args.steps.split(","))
     else:
         wanted = set(all_steps)
 
@@ -569,23 +643,70 @@ def main():
     log(f"CV: {args.cv or 'not provided'}")
     log(f"GitHub repo: {args.github_repo or 'not configured'}")
 
-    # Phase 1: Discover
+    # Phase 1: Discover — prefer manual job list if available, fall back to web search
     if 1 in wanted:
-        jobs = phase1_discover(args.query, args.max_jobs, output_dir)
+        manual_file = os.path.join(output_dir, "manual_jobs.json")
+        if os.path.exists(manual_file):
+            with open(manual_file) as f:
+                manual_jobs = json.load(f)
+            # Transform into discovered_jobs.json format that Phase 2 expects
+            discovered = []
+            for j in manual_jobs:
+                discovered.append({
+                    "company": j.get("company", ""),
+                    "role": j.get("role", ""),
+                    "platform": j.get("platform", "manual"),
+                    "apply_url": j.get("apply_url", ""),
+                    "posted": j.get("posted_date", j.get("location", "")),  # reuse location field if no posted_date
+                    "description": j.get("description", ""),
+                    "relevance": j.get("relevance", 0),
+                })
+            # Also write links_to_verify.json (Phase 2 reads this directly
+            # when selected_jobs.json doesn't exist)
+            links = [{"company": j["company"], "role": j["role"], "apply_url": j["apply_url"]} for j in discovered]
+            links_file = os.path.join(output_dir, "links_to_verify.json")
+            with open(links_file, "w") as lf:
+                json.dump(links, lf, indent=2)
+            # Write discovered_jobs.json for Phase 1c pick_jobs.py (if it runs)
+            jobs_file = os.path.join(output_dir, "discovered_jobs.json")
+            with open(jobs_file, "w") as jf:
+                json.dump({"query": "manual_jobs.json", "timestamp": DATE_STR, "total": len(discovered), "jobs": discovered}, jf, indent=2)
+            jobs = discovered
+            log(f"  Loaded {len(jobs)} jobs from manual_jobs.json → discovered_jobs.json + links_to_verify.json")
+        else:
+            jobs = phase1_discover(args.query, args.max_jobs, output_dir)
+            log(f"  Web discovery returned {len(jobs)} jobs")
     else:
         log("Skipping phase 1 (discover)")
         jobs = []
 
-    # Phase 1b: GitHub discover
-    if 1 in wanted:
+    # Phase 1b: GitHub discover (skip if we used manual list)
+    if 1 in wanted and not os.path.exists(os.path.join(output_dir, "manual_jobs.json")):
         github_jobs = phase1b_github_discover(args.query, output_dir)
-        # Merge with main results (simple append — dedup happens at verify stage)
         jobs = jobs + github_jobs
         log(f"  After GitHub merge: {len(jobs)} total jobs")
 
+    # Phase 1c: User picks which jobs to proceed with
+    if 2 in wanted and jobs:
+        pick_script = os.path.join(SCRIPT_DIR, "pick_jobs.py")
+        if os.path.exists(pick_script):
+            try:
+                result = subprocess.run(
+                    [sys.executable, pick_script, os.path.join(output_dir, "discovered_jobs.json")],
+                    capture_output=True, text=True, timeout=30,
+                    cwd=SCRIPT_DIR,
+                    input="",  # runs non-interactively; picks nothing
+                )
+                if result.stdout:
+                    log(f"  pick_jobs.py: {result.stdout.strip()}")
+            except Exception as e:
+                log(f"  pick_jobs.py skipped: {e}")
+        else:
+            log("  pick_jobs.py not found — skipping job selection gate")
+
     # Phase 2: Verify
     if 2 in wanted:
-        live_jobs = phase2_verify(jobs, output_dir)
+        live_jobs = phase2_verify(output_dir)
     else:
         log("Skipping phase 2 (verify)")
         live_jobs = jobs

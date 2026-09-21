@@ -48,15 +48,7 @@ python pipeline.py \
   --steps 1,2,3,4,5,6,7,8
 ```
 
-**Steps (select with --steps, default: all):**
-- `1` — discover_jobs + github_discover (merged)
-- `2` — verify_links
-- `3` — research_companies + github_verify_company
-- `4` — extract_jd per live job
-- `5` — match_to_cv per extracted JD
-- `6` — render (CV + cover letter + README + jd.xlsx per company folder)
-- `7` — qa_check per rendered CV
-- `8` — track_applications (local CSV) + github_track (GitHub Issues)
+**Steps (select with --steps, default: all):**\n- `1` — discover_jobs + github_discover (merged)\n- `1c` — pick_jobs (user selects subset from discovered — **requires interactive input**)\n- `2` — verify_links\n- `3` — research_companies + github_verify_company\n- `4` — extract_jd per live job\n- `5` — match_to_cv per extracted JD\n- `6` — render (CV + cover letter + README + jd.xlsx per company folder)\n- `7` — qa_check per rendered CV\n- `8` — track_applications (local CSV) + github_track (GitHub Issues)\n\n**Known pipeline bugs fixed this session (check before trusting output):**\n- Phase 1 had a silent variable-name bug: `result = web_search_fn(...)` assigned the response, but the loop read `results.get(...)` — producing 0 jobs with no error. Fixed: the assignment variable is now `results`.\n- Phase 1 referenced an undefined `platform_names` list. Fixed: defined inline before the loop.\n- Phase 1b (github_discover) default timeout was 60s and consistently timed out. Fixed: bumped to 120s.\n- Phase 2 signature changed: `phase2_verify(output_dir)` now reads `selected_jobs.json` (user pick) or falls back to `discovered_jobs.json`. Old callers passing `(jobs, output_dir)` will break.\n\n**Before running, verify these are fixed in the script on disk:**\n```bash\ngrep -n "results = web_search_fn" scripts/pipeline.py   # must exist, not "result =\ngrep -n "platform_names = \\[" scripts/pipeline.py       # must exist\ngrep -n "timeout=120" scripts/pipeline.py               # phase1b timeout\ngrep -n "selected_jobs.json" scripts/pipeline.py        # phase2 reads selection\ngrep -n "phase2_verify(output_dir)" scripts/pipeline.py  # new signature\n```
 
 **End result on disk:**
 ```
@@ -79,7 +71,9 @@ web_search('genai engineer UAE site:bayt.com')
 4. NaukriGulf (naukrigulf.com)
 5. Artificial.ae (artificial.ae)
 6. AI-jobs.net (ai-jobs.net)
-7. Employer portals (G42 careers.g42.ai, Telnyx, etc.)
+7. Remote.com (remote.com — remote UAE roles)
+8. Himalayas (himalayas.app — remote & UAE roles)
+9. Employer portals (G42 careers.g42.ai, Telnyx, etc.)
 
 **Output:** Ranked table — company, title, platform, posted date, apply URL, relevance score.
 
@@ -533,7 +527,7 @@ Say one phrase that names the skill and states the goal. The skill chains all 8 
 **What happens (sequential chain):**
 
 ```
-1. discover_jobs  → web_search × 5 platforms → top 20 ranked jobs (company, title, platform, posted date, apply URL)
+1. discover_jobs  → web_search × 7 platforms → top 20 ranked jobs (company, title, platform, posted date, apply URL)
 1b. github_discover → python github_discover.py → GitHub-sourced jobs merged in (startups, GitHub Jobs board)
 2. verify_links   → python verify_links.py       → LIVE / DEAD / UNKNOWN per job (dead ones dropped)
 3. research_companies → web_search per LIVE job → legitimacy, real ATS portal, apply link status
