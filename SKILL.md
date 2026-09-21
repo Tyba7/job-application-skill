@@ -1,7 +1,7 @@
 ---
 name: job-application
 description: "End-to-end UAE AI/ML job application pipeline: discover, verify, research, extract, match, generate, QA, track. UAE-resident, no visa sponsorship needed."
-version: 2.0.0
+version: 3.0.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -607,3 +607,47 @@ Located in `skills/job-application/scripts/`:
 - `docx_template.py` — template management
 - `docx_comments.py` — comment handling
 - `docx_revisions.py` — revision tracking
+
+## Pipeline Execution Constraints — HARD RULES
+
+### pipeline.py runs ONLY inside the Hermes agent runtime.
+
+`pipeline.py` imports `hermes_tools` (web_search, web_extract, read_file, write_file, terminal).
+`hermes_tools` is injected by the Hermes agent runtime — it is NOT available in:
+- System Python (`/usr/bin/python3`)
+- The Hermes venv (`~/.hermes/hermes-agent/venv/bin/python3`)
+- Any terminal session
+
+To run pipeline.py, you MUST use `hermes chat` interactively or trigger it through
+a Hermes agent session. It cannot be executed as `python3 scripts/pipeline.py`
+from a terminal.
+
+### hermes chat is an interactive REPL — it cannot be piped to.
+
+`hermes chat -q` requires interactive input. stdin piping and --oneshot with a
+file redirect do not work. The only reliable invocation is:
+
+    hermes chat
+
+Then type the command at the interactive prompt. Or use `delegate_task` with a
+prompt that includes the pipeline execution.
+
+### git-tracked pipeline scripts
+
+All pipeline scripts live in the job-application skill repo:
+
+    ~/.hermes/profiles/hermes-2026-09-02-14-33/skills/job-application/scripts/
+
+This repo is git-tracked with remote origin. Any modifications to pipeline.py,
+renderer.py, track_applications.py, verify_links.py, etc. must be committed here.
+
+build_jds.py in vestwell_contact_center is a STANDALONE generator — NOT part of
+the pipeline. It creates JD JSONs and rendered documents from hardcoded data.
+It does NOT perform discover_jobs, verify_links, research_companies, extract_jd,
+match_to_cv, qa_check, or track_applications.
+
+### Phase ordering — never skip Phase 0
+
+Phase 0 = discover_jobs (web_search across all configured platforms).
+This phase MUST run before any other pipeline phase.
+Skipping it means no fresh job data and no applications.csv.
