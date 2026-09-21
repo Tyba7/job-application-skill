@@ -8,8 +8,8 @@ Each application becomes a GitHub Issue with:
 - Comments: interview feedback, follow-up reminders, status changes
 
 Usage:
-    python github_track.py --repo Tyba7/job-tracker --action list
-    python github_track.py --repo Tyba7/job-tracker --action add --company "Fuse Energy" --role "Applied AI Engineer" --location "Dubai" --url "https://..."
+    python github_track.py --repo <your-gh-username>/job-tracker --action list
+    python github_track.py --repo <your-gh-username>/job-tracker --action add --company "Fuse Energy" --role "Applied AI Engineer" --location "Dubai" --url "https://..."
     python github_track.py --repo Tyba7/job-tracker --action update --number 42 --status "interviewing"
     python github_track.py --repo Tyba7/job-tracker --action comment --number 42 --body "First round technical interview scheduled for Monday"
     python github_track.py --repo Tyba7/job-tracker --action close --number 42 --reason "rejected"

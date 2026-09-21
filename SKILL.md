@@ -26,7 +26,7 @@ Each phase is a callable tool. Run the full pipeline or any phase independently.
 - **Docx toolkit:** `skills/productivity/docx/scripts/` — docx_read.py, docx_edit.py, docx_create.py, docx_validate.py, etc.
 - **Job spec:** `job_applications.md` — pre-researched UAE/Saudi/Qatar roles
 - **Today's shortlist:** `todays-applications.md` — 5 top targets
-- **GitHub tracker repo:** `Tyba7/job-tracker` — private repo for issue-based application tracking (created on first use)
+- **GitHub tracker repo:** `<your-gh-username>/job-tracker` — private repo for issue-based application tracking (created on first use)
 - **GitHub scripts:** `skills/job-application/scripts/github_discover.py`, `github_verify_company.py`, `github_track.py`
 
 ## Tool Inventory (Sequential Order)
