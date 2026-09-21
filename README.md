@@ -81,7 +81,7 @@ cp scripts/config_template.json scripts/.app_config.json
 
 ## Public use
 
-This repo is can be made public so others can use the skill. Personal info stays in `.app_config.json` (gitignored). Code references to `Tyba7` or other usernames are just example placeholders — replace with your own.
+This repo can be made public so others can use the skill. Personal info stays in `.app_config.json` (gitignored). Code references to `<your-gh-username>` are placeholders — replace with your own.
 
 ## License
 
