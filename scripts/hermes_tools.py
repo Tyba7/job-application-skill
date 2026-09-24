@@ -39,10 +39,15 @@ def _try_import():
 
 try:
     web_search_tool, web_extract_tool = _try_import()
+    _RUNNING_IN_HERMES = True
 except ImportError as e:
+    _RUNNING_IN_HERMES = False
+    _import_error = e
+
     def web_search_tool(query, limit=5):
-        return json.dumps({"success": False, "error": str(e)})
-    def web_extract_tool(urls, char_limit=None):
+        return json.dumps({"success": False, "error": "web_tools not available outside Hermes runtime", "query": query, "limit": limit})
+
+    async def web_extract_tool(urls, char_limit=None):
         return json.dumps({"results": []})
 
 def web_search(query: str, limit: int = 5) -> dict:
