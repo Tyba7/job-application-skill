@@ -134,11 +134,11 @@ def render_cv(base_cv_path, jd, output_path, company, role):
     # ── 1. Adjust summary paragraph ──────────────────────────────────────────
     for p in doc.paragraphs:
         text = p.text
-        if text.startswith("Applied AI Engineer with"):
+        if text.startswith("Applied AI Engineer"):
             jd_skill_str = jd_key_skill if jd_key_skill else "AI/ML systems"
             p.runs[0].text = (
                 f"Applied AI Engineer specialising in {jd_skill_str} and production AI systems, "
-                f"based in Dubai, UAE. Currently targeting {jd_role} roles at companies like {jd_company}. "
+                f"based in Dubai, UAE. Currently targeting {jd_role} roles at {jd_company}. "
                 f"UAE Resident — no visa sponsorship required. Immediately available."
             )
             break
@@ -316,10 +316,10 @@ def _inject_skills_section(doc, required_skills, secondary_skills):
 
     if target_para is not None:
         # Move each created paragraph to just before target_para.
-        # Use addprevious() on the target's XML element. Insert in reverse
-        # order so the final order matches created_paras order.
+        # Insert in creation order so heading comes first, then subheadings,
+        # then bullets — each addprevious pushes earlier inserts further left.
         target_elem = target_para._element
-        for cp in reversed(created_paras):
+        for cp in created_paras:
             target_elem.addprevious(cp._element)
     # If no target found, paragraphs remain at end (acceptable fallback)
 

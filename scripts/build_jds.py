@@ -739,23 +739,67 @@ DEFAULT_METADATA = {
 }
 
 def _auto_primary_skill(jd):
-    """Pick the first required_skills entry that looks like a technology name."""
-    for s in jd.get("required_skills", []):
+    """Pick the best primary_skill from required_skills.
+
+    Prefers short technology names (<=4 words) containing recognised keywords.
+    Falls back to the shortest skill entry that isn't a pure responsibility
+    phrase, even if it's 4-6 words.
+    Returns empty string if nothing fits."""
+    skills = jd.get("required_skills", [])
+    responsibility_starts = [
+        "lead and", "design, develop", "design and", "work directly",
+        "translate business", "build and", "provide technical",
+        "strong hands", "proven track", "strong engineering",
+        "excellent", "strong understanding", "strong experience",
+        "collaborate with", "communicate", "stakeholder",
+        "mentor", "own the full", "end-to-end ownership",
+        "published research", "published or", "turning research",
+        "experience with", "ability to", "familiarity with",
+        "knowledge of", "background in", "understanding of",
+        "experience in", "serving", "based on", "familiarity",
+    ]
+
+    # Pass 1: short tech-name skills (<=4 words) with a keyword hit
+    for s in skills:
         low = s.lower()
-        # Skip long phrases that are responsibilities, not skills
-        if len(s.split()) > 4:
+        words = len(s.split())
+        if words > 4:
             continue
         if any(kw in low for kw in ["python", "machine learning", "deep learning",
                                       "rag", "llm", "pytorch", "tensorflow",
                                       "docker", "kubernetes", "azure", "aws",
                                       "gcp", "fastapi", "flask", "sql", "nlp",
-                                      "genai", "agentic", "langchain"]):
+                                      "genai", "agentic", "langchain",
+                                      "huggingface", "vector", "ci/cd"]):
             return s
-    # Fallback: first short skill
-    for s in jd.get("required_skills", []):
-        if len(s.split()) <= 3:
-            return s
-    return ""
+
+    # Pass 2: shortest non-responsibility skill, up to 6 words
+    best = None
+    best_len = 99
+    for s in skills:
+        low = s.lower()
+        words = len(s.split())
+        if words <= 3:
+            # Already tried in pass 1 without keyword — quick responsibility check
+            if any(rs in low for rs in responsibility_starts):
+                continue
+            if words < best_len:
+                best = s
+                best_len = words
+            continue
+        if words > 6:
+            continue
+        # Skip obvious responsibility phrases
+        if any(rs in low for rs in responsibility_starts):
+            continue
+        # Skip degree/education lines
+        if any(ed in low for ed in ["bachelor", "master", "phd", "degree"]):
+            continue
+        if words < best_len:
+            best = s
+            best_len = words
+
+    return best or ""
 
 for folder_name, jd_data in jds.items():
     # Fill in any missing metadata fields so renderer + pipeline don't crash
