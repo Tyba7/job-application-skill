@@ -132,7 +132,32 @@ def phase1_discover(query: str, max_jobs: int, output_dir: str) -> list[dict]:
         # CWJobs (UK tech board — added per user request)
         f"AI Engineer remote site:cwjobs.co.uk",
         f"Machine Learning Engineer remote site:cwjobs.co.uk",
-        # Global remote boards (UK + US + international)
+        # ── AI training & data annotation platforms (sign-up / test / match flow) ──
+        # These are freelance gig platforms, not job boards with extractable JDs.
+        # Their apply flow is sign-up → test → get matched. We include their
+        # home/sign-up pages so the pipeline surfaces them for manual application.
+        # extract_jd.py gracefully returns extraction_source: "SIGNUP" for these
+        # (no scrapeable JD), and the renderer produces a CV with a placeholder
+        # skills section so you still get a usable document to attach.
+        f"DataAnnotation site:dataannotation.tech",
+        f"Outlier AI site:outlier.ai",
+        f"Alignerr site:alignerr.com",
+        f"Mercor site:mercor.com",
+        f"TELUS Digital AI site:telusinternational.ai",
+        f"Appen site:appen.com",
+        f"Remotasks site:remotasks.com",
+        f"OneForma site:oneforma.com",
+        f"Mindrift site:mindrift.ai",
+        f"Surge AI site:surgehq.ai",
+        f"SuperAnnotate site:superannotate.com",
+        f"RWS TrainAI site:rws.com",
+        f"OpenTrain AI site:opentrain.ai",
+        f"LXT site:lxt.ai",
+        f"Invisible Technologies site:invisible.com",
+        f"Remoter site:remoter.me",
+        f"Clickworker site:clickworker.com",
+        f"Prolific site:prolific.com",
+        # ── Global remote boards (UK + US + international)
         f"AI Engineer remote site:remote.com",
         f"Machine Learning Engineer remote site:remote.com",
         f"AI Engineer site:himalayas.app",
@@ -188,7 +213,26 @@ def phase1_discover(query: str, max_jobs: int, output_dir: str) -> list[dict]:
         # CWJobs (UK tech board — added per user request)
         "CWJobs: AI Eng remote",
         "CWJobs: ML Eng remote",
-        # ── Global ───────────────────────────────────────────────────────────
+        # ── AI training & data annotation platforms ──────────────────────────────
+        "DataAnnotation: signup",
+        "Outlier AI: signup",
+        "Alignerr: signup",
+        "Mercor: signup",
+        "TELUS Digital AI: signup",
+        "Appen: signup",
+        "Remotasks: signup",
+        "OneForma: signup",
+        "Mindrift: signup",
+        "Surge AI: signup",
+        "SuperAnnotate: signup",
+        "RWS TrainAI: signup",
+        "OpenTrain AI: signup",
+        "LXT: signup",
+        "Invisible Technologies: signup",
+        "Remoter: signup",
+        "Clickworker: signup",
+        "Prolific: signup",
+        # ── Global ────────────────────────────────────────────────────────────
         "Remote.com: AI Eng remote",
         "Remote.com: ML Eng remote",
         "Himalayas: AI Eng",
