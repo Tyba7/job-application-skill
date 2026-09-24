@@ -25,7 +25,7 @@ def _try_import():
                 return mod.web_search_tool, mod.web_extract_tool
         except (ImportError, ModuleNotFoundError):
             continue
-    agent_tools = HERMES_AGENT / "tools"
+    agent_tools = Path(HERMES_AGENT) / "tools"
     if agent_tools.exists():
         sys.path.insert(0, str(agent_tools))
         try:
