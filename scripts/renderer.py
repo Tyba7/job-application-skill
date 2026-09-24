@@ -25,50 +25,31 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, date
+from datetime import date
 from docx import Document
-from docx.shared import Pt, Inches, RGBColor, Mm
+from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 import openpyxl
-from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.styles import Font, PatternFill
 
-# ── Load candidate config from .app_config.json (gitignored) ────────────────
-# Falls back to config_template.json, then to hardcoded defaults if neither exists.
-
-import importlib.util
-
+# ── Load candidate config ────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def load_config():
-    """Load candidate config from .app_config.json (gitignored local file)."""
     config = {}
-
-    # Try .app_config.json first (local, gitignored)
-    config_path = os.path.join(SCRIPT_DIR, ".app_config.json")
-    if os.path.exists(config_path):
-        try:
-            with open(config_path) as f:
-                config = json.load(f)
-            if "candidate" in config:
-                return config["candidate"]
-        except (json.JSONDecodeError, KeyError):
-            pass
-
-    # Try config_template.json as fallback
-    template_path = os.path.join(SCRIPT_DIR, "config_template.json")
-    if os.path.exists(template_path):
-        try:
-            with open(template_path) as f:
-                config = json.load(f)
-            if "candidate" in config:
-                return config["candidate"]
-        except (json.JSONDecodeError, KeyError):
-            pass
-
-    # Hardcoded defaults — last resort (placeholders, replace via .app_config.json)
+    for config_name in (".app_config.json", "config_template.json"):
+        config_path = os.path.join(SCRIPT_DIR, config_name)
+        if os.path.exists(config_path):
+            try:
+                with open(config_path) as f:
+                    config = json.load(f)
+                if "candidate" in config:
+                    return config["candidate"]
+            except (json.JSONDecodeError, KeyError):
+                pass
     return {
         "name": "Your Name",
         "email": "your.email@example.com",
@@ -87,12 +68,11 @@ LOCATION = CANDIDATE.get("location", "City, Country")
 LINKEDIN = CANDIDATE.get("linkedin", "linkedin.com/in/yourprofile")
 GITHUB = CANDIDATE.get("github", "github.com/yourhandle")
 TODAY = date.today().isoformat()
-
-# Usable width for tight CV formatting (15.88mm margins on A4)
 MARGIN_MM = 15.88
 MARGIN_INCHES = MARGIN_MM / 25.4
 
-# ── Helper: set run font explicitly (fixes List Bullet 0pt bug) ──────────
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 def set_run_font(run, size_pt=11, bold=False, color_hex=None, name="Calibri"):
     run.font.size = Pt(size_pt)
@@ -101,8 +81,8 @@ def set_run_font(run, size_pt=11, bold=False, color_hex=None, name="Calibri"):
     if color_hex:
         run.font.color.rgb = RGBColor.from_string(color_hex)
 
+
 def fix_bullet_fonts(doc, size_pt=11):
-    """Fix the List Bullet 0pt font bug across all bullet paragraphs."""
     try:
         doc.styles["List Bullet"].font.size = Pt(size_pt)
     except KeyError:
@@ -114,101 +94,62 @@ def fix_bullet_fonts(doc, size_pt=11):
                 r.font.size = Pt(size_pt)
                 r.font.name = "Calibri"
 
-def add_hyperlink(paragraph, url, text, color_hex="0563C1", size_pt=11):
-    """Add a clickable hyperlink to a paragraph. python-docx has no add_hyperlink()."""
-    part = paragraph.part
-    r_id = part.relate_to(url, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink", is_external=True)
-    hyperlink = OxmlElement("w:hyperlink")
-    hyperlink.set(qn("r:id"), r_id)
-    new_run = OxmlElement("w:r")
-    rPr = OxmlElement("w:rPr")
-    rFonts = OxmlElement("w:rFonts")
-    rFonts.set(qn("w:ascii"), "Calibri")
-    rFonts.set(qn("w:hAnsi"), "Calibri")
-    rPr.append(rFonts)
-    c = OxmlElement("w:color")
-    c.set(qn("w:val"), color_hex)
-    rPr.append(c)
-    sz = OxmlElement("w:sz")
-    sz.set(qn("w:val"), str(size_pt * 2))
-    rPr.append(sz)
-    new_run.append(rPr)
-    t = OxmlElement("w:t")
-    t.text = text
-    new_run.append(t)
-    hyperlink.append(new_run)
-    paragraph._element.append(hyperlink)
-    return hyperlink
 
-# ── CV Renderer ────────────────────────────────────────────────────────────
+def _xml_index(elem):
+    """Return the 0-based index of an XML element in its parent's children."""
+    parent = elem.getparent()
+    if parent is None:
+        return -1
+    for i, child in enumerate(parent):
+        if child is elem:
+            return i
+    return -1
+
+
+# ── CV Renderer ──────────────────────────────────────────────────────────────
 
 def render_cv(base_cv_path, jd, output_path, company, role):
     """
     Tailor a base CV for a specific company + role.
-    Strategy: load base CV, reorder skills to match JD priority,
-    adjust summary opening line, leave experience bullets verbatim.
+
+    Strategy:
+    1. Load base CV docx.
+    2. Rewrite summary paragraph to reference target company + role.
+    3. Reorder experience bullets: JD-matched achievements first (XML surgery).
+       Must run BEFORE skills injection because body.clear() + rebuild would
+       wipe any injected paragraphs.
+    4. Inject a TECHNICAL SKILLS section before ENGINEERING DECISIONS.
+       Uses doc.add_paragraph() for native registration, then addprevious()
+       to move paragraphs into position.
+    5. Fix fonts, margins, save.
     """
     doc = Document(base_cv_path)
 
-    # ── 1. Adjust summary opening line ──────────────────────────────────
     jd_company = jd.get("company", company)
     jd_role = jd.get("title", role)
     jd_key_skill = jd.get("primary_skill", "")
+    jd_required = jd.get("required_skills", [])
+    jd_secondary = jd.get("secondary_skills", [])
 
+    # ── 1. Adjust summary paragraph ──────────────────────────────────────────
     for p in doc.paragraphs:
         text = p.text
-        if "Applied AI Engineer" in text and ("UAE" in text or "Dubai" in text):
-            # Rewrite the summary opener to reference the target
+        if text.startswith("Applied AI Engineer with"):
+            jd_skill_str = jd_key_skill if jd_key_skill else "AI/ML systems"
             p.runs[0].text = (
-                f"Applied AI Engineer specialising in {jd_key_skill} and production AI systems, "
+                f"Applied AI Engineer specialising in {jd_skill_str} and production AI systems, "
                 f"based in Dubai, UAE. Currently targeting {jd_role} roles at companies like {jd_company}. "
                 f"UAE Resident — no visa sponsorship required. Immediately available."
             )
             break
 
-    # ── 2. Reorder skills block to match JD priority ────────────────────
-    # Find the skills section and reorder the bulleted skill lines
-    jd_required = [s.lower() for s in jd.get("required_skills", [])]
-    if jd_required:
-        skills_started = False
-        skills_paras = []
-        other_paras = []
-        for p in doc.paragraphs:
-            if "Skills" in p.text or "Technical Skills" in p.text or "Core Skills" in p.text:
-                skills_started = True
-                other_paras.append(p)  # keep the heading
-                continue
-            if skills_started:
-                # Stop at next section heading
-                if p.text.strip() and p.runs and p.runs[0].bold and len(p.text) < 60:
-                    skills_started = False
-                    other_paras.append(p)
-                    continue
-                skills_paras.append(p)
-            else:
-                other_paras.append(p)
+    # ── 2. Reorder experience bullets FIRST ──────────────────────────────────
+    _reorder_experience_bullets(doc, jd_required)
 
-        # Sort skills paragraphs: JD-required first, then the rest
-        def skill_priority(p):
-            t = p.text.lower()
-            for req in jd_required:
-                if req in t:
-                    return 0  # JD-required
-            return 1  # everything else
+    # ── 3. Inject TECHNICAL SKILLS section (after reorder, before save) ─────
+    _inject_skills_section(doc, jd_required, jd_secondary)
 
-        skills_paras.sort(key=skill_priority)
-
-        # Rebuild: replace old skills paragraphs with reordered ones
-        # We do this by text replacement — simpler and safer than XML surgery
-        if skills_paras:
-            # Collect all skill text in new order
-            new_skill_text = "\n".join(p.text for p in skills_paras)
-            # Find and replace in the document body
-            # (This is a simplified approach — for full control use XML)
-            pass  # Skill reordering done above via sort; rendering keeps order
-
-    # ── 3. Fix fonts — preserve header hierarchy, set body text ─────────────
-    # Header paragraph indices (0-based): 0=name, 1=title, 2=tagline, 3=contact
+    # ── 4. Fix fonts and section headers ─────────────────────────────────────
     header_sizes = {0: 24, 1: 14, 2: 11, 3: 10}
     for i, p in enumerate(doc.paragraphs):
         for r in p.runs:
@@ -217,50 +158,302 @@ def render_cv(base_cv_path, jd, output_path, company, role):
             else:
                 set_run_font(r, size_pt=10.5)
 
-    # Bold ALL CAPS section headers (PROFESSIONAL SUMMARY, EXPERIENCE, etc.)
-    # AFTER resizing, so set_run_font's bold=False default doesn't clobber them.
     for p in doc.paragraphs:
         t = p.text.strip()
         if t and len(t) < 60 and t == t.upper() and not t.startswith("http") and "://" not in t:
-            # Skip the name line (already centered + bold, handled above via header_sizes)
             if p.alignment != WD_ALIGN_PARAGRAPH.CENTER:
                 for r in p.runs:
                     r.bold = True
 
     fix_bullet_fonts(doc, size_pt=11)
 
-    # ── 4. Fix margins ───────────────────────────────────────────────────
+    # ── 5. Fix margins ───────────────────────────────────────────────────────
     for section in doc.sections:
         section.left_margin = Inches(MARGIN_INCHES)
         section.right_margin = Inches(MARGIN_INCHES)
         section.top_margin = Inches(MARGIN_INCHES)
         section.bottom_margin = Inches(MARGIN_INCHES)
 
-    # ── 5. Save ──────────────────────────────────────────────────────────
+    # ── 6. Save ──────────────────────────────────────────────────────────────
     doc.save(output_path)
     return output_path
+
+
+def _inject_skills_section(doc, required_skills, secondary_skills):
+    """Insert a TECHNICAL SKILLS section before ENGINEERING DECISIONS.
+
+    Uses doc.add_paragraph() (python-docx-native) so paragraphs are properly
+    registered in doc.paragraphs, then moves them to the correct position
+    via lxml's addprevious() on the target paragraph's XML element.
+    """
+    # Known skills from the CV
+    all_skills = [
+        "Python", "PySpark", "SQL", "FastAPI", "Flask", "PostgreSQL",
+        "MySQL", "Databricks", "Delta Lake", "Delta Live Tables", "Unity Catalog",
+        "Docker", "Kubernetes", "GitHub Actions", "CI/CD", "AWS", "GCP", "Azure",
+        "LangChain", "Pydantic", "FAISS", "ChromaDB", "Pinecone", "Neo4j",
+        "Snowflake", "Tableau", "pandas", "NumPy",
+        "PyTorch", "TensorFlow", "scikit-learn", "Hugging Face",
+        "ASR", "Whisper", "VAD", "Diarization", "Speech Recognition",
+        "RAG", "Retrieval-Augmented Generation", "BM25", "Vector Search",
+        "LLM Evaluation", "LLM-as-Judge", "Prompt Engineering",
+        "Agentic AI", "Multi-Agent Systems",
+        "Sentiment Analysis", "Emotion Detection", "Intent Classification",
+        "Pyannote", "Silero VAD", "Emotion2vec", "GoEmotions",
+        "Unit Testing", "pytest", "Software Engineering",
+    ]
+
+    # Match JD skills
+    required_set = {s.lower() for s in required_skills}
+    secondary_set = {s.lower() for s in secondary_skills}
+
+    matched_required = []
+    matched_secondary = []
+    unmatched = []
+
+    for skill in all_skills:
+        skill_lower = skill.lower()
+        matched = False
+        for req in required_set:
+            if req in skill_lower or skill_lower in req:
+                matched_required.append(skill)
+                matched = True
+                break
+        if matched:
+            continue
+        for sec in secondary_set:
+            if sec in skill_lower or skill_lower in sec:
+                matched_secondary.append(skill)
+                matched = True
+                break
+        if matched:
+            continue
+        unmatched.append(skill)
+
+    # Build ordered skill groups
+    skills_lines = []
+    if matched_required:
+        skills_lines.append(("JD-Matched Skills (Bold)", matched_required, True))
+    if matched_secondary:
+        skills_lines.append(("JD-Secondary Skills", matched_secondary, False))
+    if unmatched:
+        cat_lang = [s for s in unmatched if any(kw in s.lower() for kw in ["python", "sql", "pytorch", "tensorflow", "flask", "fastapi"])]
+        cat_data = [s for s in unmatched if any(kw in s.lower() for kw in ["databricks", "aws", "gcp", "azure", "snowflake", "delta", "docker", "github"])]
+        cat_ai = [s for s in unmatched if any(kw in s.lower() for kw in ["rag", "llm", "vector", "faiss", "langchain", "speech", "asr", "emotion", "sentiment", "intent", "agentic", "agent"])]
+        cat_other = [s for s in unmatched if s not in cat_lang and s not in cat_data and s not in cat_ai]
+        for cat_name, cat_skills in [("Languages & Frameworks", cat_lang), ("Data & Cloud", cat_data), ("AI/ML & NLP", cat_ai), ("Other", cat_other)]:
+            if cat_skills:
+                skills_lines.append((cat_name, cat_skills, False))
+    if not skills_lines:
+        skills_lines.append(("Technical Skills", all_skills[:20], False))
+
+    # ── Create paragraphs using doc.add_paragraph() so python-docx tracks them ──
+    created_paras = []  # list of docx Paragraph objects, in order
+
+    # Heading: TECHNICAL SKILLS
+    heading_p = doc.add_paragraph("TECHNICAL SKILLS")
+    heading_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    for r in heading_p.runs:
+        r.bold = True
+        r.font.size = Pt(11)
+        r.font.name = "Calibri"
+    heading_p.paragraph_format.space_before = Pt(12)
+    heading_p.paragraph_format.space_after = Pt(4)
+    created_paras.append(heading_p)
+
+    for section_label, skills, bold_first in skills_lines:
+        if section_label != "Technical Skills":
+            sub_p = doc.add_paragraph(section_label + ":")
+            for r in sub_p.runs:
+                r.bold = True
+                r.font.size = Pt(10)
+                r.font.name = "Calibri"
+            sub_p.paragraph_format.space_before = Pt(6)
+            sub_p.paragraph_format.space_after = Pt(2)
+            created_paras.append(sub_p)
+
+        # Batch skills into lines of 5
+        line_skills = []
+        for skill in skills:
+            line_skills.append(skill)
+            if len(line_skills) >= 5:
+                bullet_text = ", ".join(line_skills)
+                bullet_p = doc.add_paragraph(bullet_text, style="List Bullet")
+                for r in bullet_p.runs:
+                    r.font.size = Pt(11)
+                    r.font.name = "Calibri"
+                    if bold_first:
+                        r.bold = True
+                bullet_p.paragraph_format.space_after = Pt(0)
+                created_paras.append(bullet_p)
+                line_skills = []
+        if line_skills:
+            bullet_text = ", ".join(line_skills)
+            bullet_p = doc.add_paragraph(bullet_text, style="List Bullet")
+            for r in bullet_p.runs:
+                r.font.size = Pt(11)
+                r.font.name = "Calibri"
+                if bold_first:
+                    r.bold = True
+            bullet_p.paragraph_format.space_after = Pt(0)
+            created_paras.append(bullet_p)
+
+    # ── Find insertion point and move paragraphs into position ────────────────
+    # Look for ENGINEERING DECISIONS or EDUCATION in doc.paragraphs
+    target_para = None
+    for p in doc.paragraphs:
+        t = p.text.strip()
+        if t == "ENGINEERING DECISIONS":
+            target_para = p
+            break
+
+    if target_para is None:
+        for p in doc.paragraphs:
+            t = p.text.strip()
+            if t == "EDUCATION":
+                target_para = p
+                break
+
+    if target_para is not None:
+        # Move each created paragraph to just before target_para.
+        # Use addprevious() on the target's XML element. Insert in reverse
+        # order so the final order matches created_paras order.
+        target_elem = target_para._element
+        for cp in reversed(created_paras):
+            target_elem.addprevious(cp._element)
+    # If no target found, paragraphs remain at end (acceptable fallback)
+
+
+def _reorder_experience_bullets(doc, jd_required):
+    """Reorder experience section: JD-matched paragraphs first (via XML surgery).
+
+    Only reorders paragraphs that are part of the EXPERIENCE section (between
+    the EXPERIENCE heading and the next ALL-CAPS heading like ENGINEERING DECISIONS).
+
+    The operation is: clear body, re-append pre-exp + reordered exp + post-exp.
+    This must run BEFORE _inject_skills_section because body.clear() would
+    remove any paragraphs injected earlier.
+
+    After clearing/rebuilding, collapses duplicate w:t text nodes that the
+    source CV sometimes contains (e.g. "ENGINEERING DECISIONS" stored in 3
+    separate runs, which itertext() would read as triplicated).
+    """
+    if not jd_required:
+        return
+
+    # Collect JD keywords
+    jd_keywords = set()
+    for skill in jd_required:
+        for w in skill.lower().split():
+            if len(w) > 3:
+                jd_keywords.add(w)
+
+    def match_score(text):
+        text_lower = text.lower()
+        score = 0
+        for kw in jd_keywords:
+            if kw in text_lower:
+                score += 1
+        for skill in jd_required:
+            if skill.lower() in text_lower:
+                score += 3
+        return score
+
+    # ── Find EXPERIENCE section boundaries via doc.paragraphs ────────────────
+    exp_start = -1
+    exp_end = -1
+    for i, p in enumerate(doc.paragraphs):
+        t = p.text.strip()
+        if not t:
+            continue
+        if t != t.upper():
+            continue
+        if "://" in t:
+            continue
+        if len(t) >= 60:
+            continue
+        if "EXPERIENCE" in t:
+            exp_start = i
+        elif exp_start >= 0 and exp_end == -1:
+            exp_end = i
+            break
+
+    if exp_start < 0 or exp_end < 0:
+        return
+
+    # ── Classify paragraphs within the experience section ─────────────────────
+    body = doc.element.body
+    paras_xml = [e for e in body if e.tag.endswith('}p')]
+
+    heading_paras = []   # (idx, xml_elem, text) — includes the EXPERIENCE heading
+    matched_content = []  # (idx, xml_elem, text, score)
+    other_content = []    # (idx, xml_elem, text)
+
+    # Always include the EXPERIENCE heading as the first item
+    exp_heading_pe = paras_xml[exp_start]
+    exp_heading_p = doc.paragraphs[exp_start]
+    heading_paras.append((exp_start, exp_heading_pe, exp_heading_p.text.strip()))
+
+    for i in range(exp_start + 1, exp_end):
+        pe = paras_xml[i]
+        p = doc.paragraphs[i]
+        t = p.text.strip()
+        if not t:
+            heading_paras.append((i, pe, t))
+            continue
+        score = match_score(t)
+        if score > 0:
+            matched_content.append((i, pe, t, score))
+        else:
+            other_content.append((i, pe, t))
+
+    # Sort: highest score first, then others in original order
+    matched_content.sort(key=lambda x: -x[3])
+    ordered = heading_paras + matched_content + other_content
+
+    # ── Rebuild the body ─────────────────────────────────────────────────────
+    # Capture post-exp XML elements BEFORE clearing
+    post_exp = [paras_xml[i] for i in range(exp_end, len(paras_xml))]
+    # Capture pre-exp XML elements (everything before exp_start)
+    pre_exp = [paras_xml[i] for i in range(exp_start)]
+
+    body.clear()
+    for pe in pre_exp:
+        body.append(pe)
+    for item in ordered:
+        # item may be (idx, elem, text) or (idx, elem, text, score) — elem is always index 1
+        body.append(item[1])
+    for pe in post_exp:
+        body.append(pe)
+
+    # ── After rebuild: collapse duplicate text nodes in each paragraph ────────
+    # The source CV sometimes stores a heading's text across multiple w:t runs
+    # (e.g. "ENGINEERING DECISIONS" in 3 runs → itertext() returns it 3x).
+    # Merge all w:t children of each paragraph into the first run.
+    for pe in body:
+        if not pe.tag.endswith('}p'):
+            continue
+        t_elems = list(pe.iter(qn('w:t')))
+        if len(t_elems) <= 1:
+            continue
+        # Merge all text into the first w:t, remove the rest
+        merged_text = "".join(t.text or "" for t in t_elems)
+        t_elems[0].text = merged_text
+        for extra_t in t_elems[1:]:
+            extra_t.getparent().remove(extra_t)
 
 
 # ── Cover Letter Renderer ──────────────────────────────────────────────────
 
 def render_cover_letter(jd, cv_evidence, output_path, company, role):
-    """
-    Generate a tailored one-page cover letter (3 paragraphs, ~300 words).
-    Opens with something specific to the req, names one genuine gap, closes
-    with logistics.
-    """
     jd_company = jd.get("company", company)
     jd_role = jd.get("title", role)
     jd_key_req = jd.get("primary_skill", "")
-    jd_secondary = jd.get("secondary_skills", [])[:2]
 
-    # Pick a genuine gap from the match analysis
     gaps = cv_evidence.get("gaps", [])
     gap_text = ""
     if gaps:
         gap = gaps[0]
-        # Handle both dict format {"skill": ..., "actual": ..., "required": ...}
-        # and string format "Azure ecosystem"
         if isinstance(gap, dict):
             gap_skill = gap.get("skill", "a relevant technology")
             gap_actual = gap.get("actual", "AWS/GCP")
@@ -301,42 +494,34 @@ def render_cover_letter(jd, cv_evidence, output_path, company, role):
     )
 
     doc = Document()
-
-    # Set narrow margins for one page
     for section in doc.sections:
         section.left_margin = Inches(1.0)
         section.right_margin = Inches(1.0)
         section.top_margin = Inches(1.0)
         section.bottom_margin = Inches(1.0)
 
-    # Name and contact header
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     r = p.add_run(f"{NAME}")
     set_run_font(r, size_pt=12, bold=True)
 
-    contact_lines = [EMAIL, PHONE, LOCATION, LINKEDIN, GITHUB]
-    for line in contact_lines:
+    for line in [EMAIL, PHONE, LOCATION, LINKEDIN, GITHUB]:
         p = doc.add_paragraph()
         r = p.add_run(line)
         set_run_font(r, size_pt=10)
         p.paragraph_format.space_after = Pt(0)
         p.paragraph_format.space_before = Pt(0)
 
-    doc.add_paragraph()  # spacer
-
-    # Date
+    doc.add_paragraph()
     p = doc.add_paragraph()
     r = p.add_run(TODAY)
     set_run_font(r, size_pt=10)
     p.paragraph_format.space_after = Pt(6)
 
-    # Salutation
     p = doc.add_paragraph()
     r = p.add_run(f"Dear {jd_company} Hiring Team,")
     set_run_font(r, size_pt=11)
 
-    # Paragraphs
     for para_text in [para1, para2, para3]:
         p = doc.add_paragraph()
         r = p.add_run(para_text)
@@ -344,7 +529,6 @@ def render_cover_letter(jd, cv_evidence, output_path, company, role):
         p.paragraph_format.space_after = Pt(6)
         p.paragraph_format.line_spacing = 1.15
 
-    # Closing
     p = doc.add_paragraph()
     r = p.add_run("Sincerely,")
     set_run_font(r, size_pt=11)
@@ -361,10 +545,6 @@ def render_cover_letter(jd, cv_evidence, output_path, company, role):
 # ── README Renderer ────────────────────────────────────────────────────────
 
 def render_readme(jd, cv_evidence, output_path, company, role, apply_url):
-    """
-    Generate a README.md for the company folder tracking role, link,
-    applied date, fit analysis, interview prep, and follow-up schedule.
-    """
     fit_score = cv_evidence.get("fit_score", "UNKNOWN")
     match_details = cv_evidence.get("match_details", [])
     gaps = cv_evidence.get("gaps", [])
@@ -437,19 +617,20 @@ def render_readme(jd, cv_evidence, output_path, company, role, apply_url):
 # ── JD Excel Renderer ──────────────────────────────────────────────────────
 
 def render_jd_excel(jd, output_path, company):
-    """
-    Write the full JD and all extracted fields into an .xlsx file.
-    This is the immutable archive of what the posting contained at
-    extraction time.
-    """
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = f"JD_{company[:31]}"  # Excel sheet name max 31 chars
+    ws.title = f"JD_{company[:31]}"
 
     header_font = Font(bold=True, size=11)
     label_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
     label_font = Font(bold=True)
     jd_font = Font(size=10)
+
+    required_skills = jd.get("required_skills", [])
+    if isinstance(required_skills, list):
+        skills_str = ", ".join(required_skills)
+    else:
+        skills_str = str(required_skills)
 
     fields = [
         ("Title", jd.get("title", "")),
@@ -463,7 +644,7 @@ def render_jd_excel(jd, output_path, company):
         ("Years Experience", str(jd.get("years_exp", ""))),
         ("Degree Required", jd.get("degree", "")),
         ("Salary Range", jd.get("salary", "")),
-        ("Required Skills (raw)", ", ".join(jd.get("required_skills", [])) if isinstance(jd.get("required_skills", []), list) else jd.get("required_skills", "")),
+        ("Required Skills (raw)", skills_str),
         ("Full JD (below)", ""),
     ]
 
@@ -475,13 +656,17 @@ def render_jd_excel(jd, output_path, company):
     raw_jd = jd.get("full_jd", "")
     ws.cell(row=14, column=1, value=raw_jd).font = jd_font
 
-    for col in ws.columns:
+    # Adjust column widths
+    for col_cells in ws.columns:
         max_length = 0
-        for cell in col:
+        col_letter = None
+        for cell in col_cells:
             if cell.value:
                 max_length = max(max_length, len(str(cell.value)))
-        adjusted_width = min(max_length + 2, 100)
-        ws.column_dimensions[cell.column_letter].width = max(adjusted_width, 15)
+                col_letter = cell.column_letter
+        if col_letter:
+            adjusted_width = min(max_length + 2, 100)
+            ws.column_dimensions[col_letter].width = max(adjusted_width, 15)
 
     wb.save(output_path)
     return output_path
@@ -500,7 +685,6 @@ def main():
     parser.add_argument("--cv-name", default="CV", help="CV file prefix")
     args = parser.parse_args()
 
-    # Load JD
     with open(args.jd_json) as f:
         jd = json.load(f)
 
@@ -508,11 +692,8 @@ def main():
 
     results = {}
 
-    # 1. Render CV — sanitize filenames: collapse non-alphanumeric in role, cap length
-    # Company comes from the folder name (already filesystem-safe, use as-is)
     safe_company = args.company
     safe_role = re.sub(r"[^a-zA-Z0-9]+", "_", args.role).strip("_")
-    # Cap role portion to keep filenames sane
     MAX_ROLE_LEN = 40
     if len(safe_role) > MAX_ROLE_LEN:
         safe_role = safe_role[:MAX_ROLE_LEN].rstrip("_")
@@ -520,7 +701,6 @@ def main():
     render_cv(args.cv_base, jd, cv_path, args.company, args.role)
     results["cv"] = cv_path
 
-    # 2. Render cover letter (CV evidence would come from match phase)
     cv_evidence = {
         "gaps": jd.get("gaps", []),
         "fit_score": jd.get("fit_score", "UNKNOWN"),
@@ -530,17 +710,14 @@ def main():
     render_cover_letter(jd, cv_evidence, cl_path, args.company, args.role)
     results["cover_letter"] = cl_path
 
-    # 3. Render README
     readme_path = os.path.join(args.output_dir, "README.md")
     render_readme(jd, cv_evidence, readme_path, args.company, args.role, jd.get("apply_url", ""))
     results["readme"] = readme_path
 
-    # 4. Render JD Excel
     jd_xlsx_path = os.path.join(args.output_dir, "jd.xlsx")
     render_jd_excel(jd, jd_xlsx_path, args.company)
     results["jd_xlsx"] = jd_xlsx_path
 
-    # Output JSON results
     print(json.dumps(results, indent=2))
 
 

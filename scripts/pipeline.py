@@ -113,7 +113,7 @@ def phase1_discover(query: str, max_jobs: int, output_dir: str) -> list[dict]:
     seen_urls = set()
 
     for i, search_query in enumerate(platforms):
-        log(f"  Searching platform {i+1}/7: {search_query[:60]}...")
+        log(f"  Searching platform {i+1}/{len(platforms)}: {search_query[:60]}...")
         try:
             results = web_search_fn(search_query, limit=10)
             for item in results.get("data", {}).get("web", []):
@@ -282,12 +282,10 @@ def phase3_research(live_jobs: list[dict], output_dir: str) -> list[dict]:
     """Research each company via web_search."""
     log(f"Phase 3: Researching {len(live_jobs)} companies")
 
-    _, web_extract_fn = get_hermes_tools()
-    if web_extract_fn is None:  # web_search is same module
+    web_search_fn, _ = get_hermes_tools()
+    if web_search_fn is None:
         fail("hermes_tools not available — run inside Hermes")
         return []
-
-    web_search_fn = web_extract_fn  # same hermes_tools module
 
     research_file = os.path.join(output_dir, "company_research.json")
 
@@ -626,13 +624,14 @@ def main():
     parser.add_argument("--cv", help="Path to base CV .docx (optional — skip render/match if omitted)")
     parser.add_argument("--github-repo", help="GitHub repo for tracking (e.g. OWNER/job-tracker)")
     parser.add_argument("--steps", help="Comma-separated phase numbers to run (default: all). e.g. '1,2,4'")
+    parser.add_argument("--select", help="Comma-separated 1-based job numbers to select after discovery, e.g. '1,3,5'")
     args = parser.parse_args()
 
     output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
 
     # Determine which phases to run
-    all_steps = [1, 1, 2, 3, 3, 4, 5, 6, 7, 8]  # 1b,3b use same numbers
+    all_steps = [1, 2, 3, 4, 5, 6, 7, 8]
     if args.steps:
         wanted = set(int(s.strip().rstrip("bc")) for s in args.steps.split(","))
     else:
@@ -684,25 +683,41 @@ def main():
     if 1 in wanted and not os.path.exists(os.path.join(output_dir, "manual_jobs.json")):
         github_jobs = phase1b_github_discover(args.query, output_dir)
         jobs = jobs + github_jobs
+        # Selection must see the combined discovery result, not only web jobs.
+        with open(os.path.join(output_dir, "discovered_jobs.json"), "w") as f:
+            json.dump({"query": args.query, "timestamp": DATE_STR, "total": len(jobs), "jobs": jobs}, f, indent=2)
         log(f"  After GitHub merge: {len(jobs)} total jobs")
 
-    # Phase 1c: User picks which jobs to proceed with
-    if 2 in wanted and jobs:
-        pick_script = os.path.join(SCRIPT_DIR, "pick_jobs.py")
-        if os.path.exists(pick_script):
-            try:
-                result = subprocess.run(
-                    [sys.executable, pick_script, os.path.join(output_dir, "discovered_jobs.json")],
-                    capture_output=True, text=True, timeout=30,
-                    cwd=SCRIPT_DIR,
-                    input="",  # runs non-interactively; picks nothing
-                )
-                if result.stdout:
-                    log(f"  pick_jobs.py: {result.stdout.strip()}")
-            except Exception as e:
-                log(f"  pick_jobs.py skipped: {e}")
-        else:
-            log("  pick_jobs.py not found — skipping job selection gate")
+    # Job selection is deliberately explicit.  The old code started an interactive
+    # picker with stdin closed, then silently processed every discovered listing.
+    selected_file = os.path.join(output_dir, "selected_jobs.json")
+    if args.select:
+        selection_jobs = jobs
+        if not selection_jobs:
+            discovered_file = os.path.join(output_dir, "discovered_jobs.json")
+            if os.path.exists(discovered_file):
+                with open(discovered_file) as f:
+                    selection_jobs = json.load(f).get("jobs", [])
+            if not selection_jobs:
+                parser.error("--select needs jobs from this run or an existing discovered_jobs.json")
+        try:
+            indexes = [int(value.strip()) - 1 for value in args.select.split(",") if value.strip()]
+        except ValueError:
+            parser.error("--select must contain comma-separated positive integers")
+        selected = []
+        for index in indexes:
+            if not 0 <= index < len(selection_jobs):
+                parser.error(f"--select index {index + 1} is outside the discovered job list")
+            selected.append(selection_jobs[index])
+        with open(selected_file, "w") as f:
+            json.dump(selected, f, indent=2)
+        log(f"Selected {len(selected)} jobs → {selected_file}")
+
+    # Discovery is a review gate.  Leave the shortlist on disk and return cleanly
+    # until the caller supplies --select or creates selected_jobs.json.
+    if 1 in wanted and 2 in wanted and jobs and not os.path.exists(selected_file):
+        log("REVIEW REQUIRED: inspect discovered_jobs.json, then rerun with --steps 2,3,4,5,6,7,8 --select '1,3,5'.")
+        return
 
     # Phase 2: Verify
     if 2 in wanted:

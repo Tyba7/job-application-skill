@@ -15,10 +15,10 @@ from pathlib import Path
 #   WORKSPACE        — workspace root (CV_HOLISTIC_MASTER.md, applications/)
 #   SKILL_SCRIPTS    — path to job-application skill scripts/ dir
 #   JD_DATE          — application date folder (default: 2026-09-21)
-WORKSPACE = Path(os.environ.get("WORKSPACE", str(Path(__file__).resolve().parent)))
+WORKSPACE = Path(os.environ.get("WORKSPACE", str(Path(__file__).resolve().parent.parent)))
 SKILL_SCRIPTS = Path(os.environ.get(
     "SKILL_SCRIPTS",
-    str(WORKSPACE / ".hermes" / "profiles" / "hermes-2026-09-02-14-33"
+    str(Path.home() / ".hermes" / "profiles" / "hermes-2026-09-02-14-33"
         / "skills" / "job-application" / "scripts")
 ))
 RENDERER = Path(os.environ.get("RENDERER", str(SKILL_SCRIPTS / "renderer.py")))
@@ -730,7 +730,41 @@ Preferred:
 }
 
 # ── Write all JD JSONs ────────────────────────────────────────────────────────
+DEFAULT_METADATA = {
+    "primary_skill": "",
+    "secondary_skills": [],
+    "extraction_source": "manual",
+    "gaps": [],
+    "match_details": [],
+}
+
+def _auto_primary_skill(jd):
+    """Pick the first required_skills entry that looks like a technology name."""
+    for s in jd.get("required_skills", []):
+        low = s.lower()
+        # Skip long phrases that are responsibilities, not skills
+        if len(s.split()) > 4:
+            continue
+        if any(kw in low for kw in ["python", "machine learning", "deep learning",
+                                      "rag", "llm", "pytorch", "tensorflow",
+                                      "docker", "kubernetes", "azure", "aws",
+                                      "gcp", "fastapi", "flask", "sql", "nlp",
+                                      "genai", "agentic", "langchain"]):
+            return s
+    # Fallback: first short skill
+    for s in jd.get("required_skills", []):
+        if len(s.split()) <= 3:
+            return s
+    return ""
+
 for folder_name, jd_data in jds.items():
+    # Fill in any missing metadata fields so renderer + pipeline don't crash
+    for key, default in DEFAULT_METADATA.items():
+        jd_data.setdefault(key, default)
+    # Auto-detect primary skill if not set
+    if not jd_data.get("primary_skill"):
+        jd_data["primary_skill"] = _auto_primary_skill(jd_data)
+
     jd_path = JD_DIR / folder_name / "jd.json"
     jd_path.parent.mkdir(parents=True, exist_ok=True)
     with open(jd_path, "w") as f:

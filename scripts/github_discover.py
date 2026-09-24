@@ -75,7 +75,7 @@ def github_repo_hiring_search(query: str, location: str = "UAE") -> list[dict]:
     return results
 
 
-def github_issues_hiring_search(location: str = "UAE") -> list[dict]:
+def github_issues_hiring_search(query: str, location: str = "UAE") -> list[dict]:
     """Search GitHub issues for hiring/open-position posts."""
     results = []
     try:
@@ -116,7 +116,7 @@ def run_github_discover(query: str, location: str = "UAE", output: str = None) -
     print(f"  → {len(repos)} results from GitHub repos")
     
     print(f"Searching GitHub issues for open positions")
-    issues = github_issues_hiring_search(location)
+    issues = github_issues_hiring_search(query, location)
     all_results.extend(issues)
     print(f"  → {len(issues)} results from GitHub issues")
     
