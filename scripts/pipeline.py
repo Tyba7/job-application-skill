@@ -70,35 +70,78 @@ def phase1_discover(query: str, max_jobs: int, output_dir: str) -> list[dict]:
 
     # Discovery queries — targeted to surface individual job postings, not
     # category/aggregator pages. Each query names a specific company, role, or
-    # platform known to host UAE AI/ML listings.
+    # platform known to host AI/ML listings. The UAE block is the original
+    # set; UK, US, and global boards are added below for remote-from-Dubai
+    # searches across both regions.
     platforms = [
-        # Indeed — specific role + location queries (not generic "AI engineer UAE")
+        # ── UAE (original set, kept intact) ──────────────────────────────────
+        # Indeed UAE — specific role + location queries
         f"AI Engineer Abu Dhabi site:indeed.ae",
         f"Machine Learning Engineer Dubai site:indeed.ae",
         f"LLM Engineer UAE site:indeed.ae",
         f"GenAI Engineer Dubai site:indeed.ae",
         f"AI Research Engineer Abu Dhabi site:indeed.ae",
-        # Bayt — specific role pages
+        # Bayt — UAE role pages
         f"AI Engineer UAE site:bayt.com",
         f"ML Engineer Abu Dhabi site:bayt.com",
         f"GenAI Engineer UAE site:bayt.com",
-        # LinkedIn
+        # LinkedIn UAE
         f"AI Engineer Dubai site:linkedin.com/jobs",
         f"Machine Learning Engineer UAE site:linkedin.com/jobs",
         # NaukriGulf
         f"AI Engineer Dubai site:naukrigulf.com",
         f"ML Engineer Abu Dhabi site:naukrigulf.com",
-        # User-requested additions
+        # Remote boards (already requested)
         f"AI Engineer UAE site:remote.com",
         f"Machine Learning Engineer UAE site:himalayas.app",
+        # ── UK remote boards ─────────────────────────────────────────────────
+        # Indeed UK
+        f"AI Engineer site:uk.indeed.com remote",
+        f"Machine Learning Engineer site:uk.indeed.com remote",
+        f"LLM Engineer site:uk.indeed.com remote",
+        # LinkedIn UK
+        f"AI Engineer remote site:linkedin.com/jobs United Kingdom",
+        f"Machine Learning Engineer remote site:linkedin.com/jobs United Kingdom",
+        # UK remote-specific boards
+        f"AI Engineer remote site:europeremotes.com",
+        f"Machine Learning Engineer remote site:europeremotes.com",
+        f"AI remote site:britainremains.co.uk",
+        # Otta (UK + US startup board, strong remote filter)
+        f"AI Engineer remote site:otta.com",
+        f"Machine Learning Engineer remote site:otta.com",
+        # ── US remote boards ─────────────────────────────────────────────────
+        # Indeed US
+        f"AI Engineer site:indeed.com remote",
+        f"Machine Learning Engineer site:indeed.com remote",
+        f"LLM Engineer site:indeed.com remote",
+        # LinkedIn US
+        f"AI Engineer remote site:linkedin.com/jobs United States",
+        f"Machine Learning Engineer remote site:linkedin.com/jobs United States",
+        # US remote-specific boards
+        f"AI Engineer site:weworkremotely.com",
+        f"Machine Learning Engineer site:weworkremotely.com",
+        f"AI Engineer site:remoteok.com",
+        f"Machine Learning Engineer site:remoteok.com",
+        f"AI Engineer site:remotive.com",
+        f"ML Engineer site:remotive.com",
+        f"Applied AI Engineer site:remoterocketship.com",
+        f"Machine Learning Engineer site:wellfound.com remote",
+        # Global remote boards (UK + US + international)
+        f"AI Engineer remote site:remote.com",
+        f"Machine Learning Engineer remote site:remote.com",
+        f"AI Engineer site:himalayas.app",
+        f"ML Engineer site:himalayas.app",
+        f"AI remote site:justremote.co",
+        f"Machine Learning remote site:workingnomads.com",
     ]
 
     platform_names = [
-        "Indeed: AI Eng Abu Dhabi",
-        "Indeed: ML Eng Dubai",
-        "Indeed: LLM Eng UAE",
-        "Indeed: GenAI Eng Dubai",
-        "Indeed: AI Research Eng Abu Dhabi",
+        # ── UAE ──────────────────────────────────────────────────────────────
+        "Indeed AE: AI Eng Abu Dhabi",
+        "Indeed AE: ML Eng Dubai",
+        "Indeed AE: LLM Eng UAE",
+        "Indeed AE: GenAI Eng Dubai",
+        "Indeed AE: AI Research Eng Abu Dhabi",
         "Bayt: AI Engineer UAE",
         "Bayt: ML Engineer Abu Dhabi",
         "Bayt: GenAI Engineer UAE",
@@ -108,6 +151,38 @@ def phase1_discover(query: str, max_jobs: int, output_dir: str) -> list[dict]:
         "Naukrigulf: ML Engineer Abu Dhabi",
         "Remote.com: AI Engineer UAE",
         "Himalayas: ML Engineer UAE",
+        # ── UK ───────────────────────────────────────────────────────────────
+        "Indeed UK: AI Eng remote",
+        "Indeed UK: ML Eng remote",
+        "Indeed UK: LLM Eng remote",
+        "LinkedIn UK: AI Eng remote",
+        "LinkedIn UK: ML Eng remote",
+        "EuropeRemotes: AI Eng remote",
+        "EuropeRemotes: ML Eng remote",
+        "BritainRemains: AI remote",
+        "Otta: AI Eng remote",
+        "Otta: ML Eng remote",
+        # ── US ───────────────────────────────────────────────────────────────
+        "Indeed US: AI Eng remote",
+        "Indeed US: ML Eng remote",
+        "Indeed US: LLM Eng remote",
+        "LinkedIn US: AI Eng remote",
+        "LinkedIn US: ML Eng remote",
+        "WeWorkRemotely: AI Eng",
+        "WeWorkRemotely: ML Eng",
+        "RemoteOK: AI Eng",
+        "RemoteOK: ML Eng",
+        "Remotive: AI Eng",
+        "Remotive: ML Eng",
+        "RemoteRocketship: Applied AI Eng",
+        "Wellfound: ML Eng remote",
+        # ── Global ───────────────────────────────────────────────────────────
+        "Remote.com: AI Eng remote",
+        "Remote.com: ML Eng remote",
+        "Himalayas: AI Eng",
+        "Himalayas: ML Eng",
+        "JustRemote: AI remote",
+        "WorkingNomads: ML remote",
     ]
 
     all_jobs = []
