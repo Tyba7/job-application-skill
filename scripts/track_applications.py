@@ -152,8 +152,8 @@ def regenerate_tracker(root_dir, output_path, manual_entries=None):
         # Filter to relevant files
         relevant_files = [
             f for f in files
-            if f.endswith((".docx", ".xlsx", ".md", ".txt"))
-            and not f.startswith("~$")
+            if (f.endswith((".docx", ".xlsx", ".md", ".txt"))
+                and not f.startswith("~$"))
         ]
 
         status = infer_status(relevant_files)
