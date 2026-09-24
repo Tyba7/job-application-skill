@@ -741,64 +741,69 @@ DEFAULT_METADATA = {
 def _auto_primary_skill(jd):
     """Pick the best primary_skill from required_skills.
 
-    Prefers short technology names (<=4 words) containing recognised keywords.
-    Falls back to the shortest skill entry that isn't a pure responsibility
-    phrase, even if it's 4-6 words.
-    Returns empty string if nothing fits."""
+    Skips responsibility phrases (long, action-verb-led entries) and picks
+    the shortest entry that contains a concrete technology name.
+    """
     skills = jd.get("required_skills", [])
-    responsibility_starts = [
+    # Skip phrases that are clearly responsibilities, not skills
+    responsibility_prefixes = [
         "lead and", "design, develop", "design and", "work directly",
-        "translate business", "build and", "provide technical",
-        "strong hands", "proven track", "strong engineering",
-        "excellent", "strong understanding", "strong experience",
-        "collaborate with", "communicate", "stakeholder",
-        "mentor", "own the full", "end-to-end ownership",
-        "published research", "published or", "turning research",
+        "translate business", "build and", "build ", "strong hands", "proven track",
+        "strong engineering", "excellent", "strong understanding",
+        "strong experience", "collaborate with", "communicate",
+        "stakeholder", "mentor", "own the full", "end-to-end ownership",
         "experience with", "ability to", "familiarity with",
         "knowledge of", "background in", "understanding of",
-        "experience in", "serving", "based on", "familiarity",
+        "experience in", "serving", "based on", "hiring",
     ]
 
-    # Pass 1: short tech-name skills (<=4 words) with a keyword hit
-    for s in skills:
+    def is_responsibility(s):
         low = s.lower()
-        words = len(s.split())
-        if words > 4:
+        return any(low.startswith(p) for p in responsibility_prefixes) or len(s.split()) > 6
+
+    def has_tech_keyword(s):
+        low = s.lower()
+        tech_keywords = [
+            "python", "pytorch", "tensorflow", "jax", "scikit", "keras",
+            "rag", "llm", "genai", "agentic", "langchain", "langgraph",
+            "semantic kernel", "llamaindex", "dspy", "ragas",
+            "docker", "kubernetes", "k8s", "ci/cd",
+            "azure", "aws", "gcp", "cloud",
+            "fastapi", "flask", "sql", "postgresql", "mysql",
+            "nlp", "computer vision", "time-series", "deep learning",
+            "machine learning", "hf", "hugging face",
+            "faiss", "pinecone", "weaviate", "pgvector", "qdrant",
+            "vector database", "vector db",
+            "asr", "tts", "speech", "voice",
+            "git", "github", "gitlab",
+        ]
+        return any(kw in low for kw in tech_keywords)
+
+    # Pass 1: short skill names with tech keywords (<=6 words, not responsibilities)
+    for s in skills:
+        if is_responsibility(s):
             continue
-        if any(kw in low for kw in ["python", "machine learning", "deep learning",
-                                      "rag", "llm", "pytorch", "tensorflow",
-                                      "docker", "kubernetes", "azure", "aws",
-                                      "gcp", "fastapi", "flask", "sql", "nlp",
-                                      "genai", "agentic", "langchain",
-                                      "huggingface", "vector", "ci/cd"]):
+        if has_tech_keyword(s):
             return s
 
-    # Pass 2: shortest non-responsibility skill, up to 6 words
-    best = None
-    best_len = 99
+    # Pass 2: entries containing specific tech keywords even if longer
     for s in skills:
         low = s.lower()
-        words = len(s.split())
-        if words <= 3:
-            # Already tried in pass 1 without keyword — quick responsibility check
-            if any(rs in low for rs in responsibility_starts):
-                continue
-            if words < best_len:
-                best = s
-                best_len = words
-            continue
-        if words > 6:
-            continue
-        # Skip obvious responsibility phrases
-        if any(rs in low for rs in responsibility_starts):
-            continue
-        # Skip degree/education lines
-        if any(ed in low for ed in ["bachelor", "master", "phd", "degree"]):
-            continue
-        if words < best_len:
-            best = s
-            best_len = words
+        # "Build RAG pipelines end-to-end" → extract "RAG"
+        if "rag" in low and "build" in low:
+            return "RAG pipelines"
+        if "llm" in low and ("genai" in low or "application" in low):
+            return "GenAI/LLM applications"
+        if "ai engineering" in low and "genai" in low:
+            return "GenAI/LLM solution development"
 
+    # Pass 3: shortest non-responsibility entry
+    best = None
+    for s in skills:
+        if is_responsibility(s):
+            continue
+        if best is None or len(s.split()) < len(best.split()):
+            best = s
     return best or ""
 
 for folder_name, jd_data in jds.items():

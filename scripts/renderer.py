@@ -136,11 +136,19 @@ def render_cv(base_cv_path, jd, output_path, company, role):
         text = p.text
         if text.startswith("Applied AI Engineer"):
             jd_skill_str = jd_key_skill if jd_key_skill else "AI/ML systems"
-            p.runs[0].text = (
+            new_summary = (
                 f"Applied AI Engineer specialising in {jd_skill_str} and production AI systems, "
                 f"based in Dubai, UAE. Currently targeting {jd_role} roles at {jd_company}. "
                 f"UAE Resident — no visa sponsorship required. Immediately available."
             )
+            # Clear existing runs and set single run with new text
+            # (preserves paragraph-level formatting like alignment)
+            for r in p.runs:
+                r.text = ""
+            if p.runs:
+                p.runs[0].text = new_summary
+            else:
+                p.add_run(new_summary)
             break
 
     # ── 2. Reorder experience bullets FIRST ──────────────────────────────────
@@ -186,21 +194,23 @@ def _inject_skills_section(doc, required_skills, secondary_skills):
     registered in doc.paragraphs, then moves them to the correct position
     via lxml's addprevious() on the target paragraph's XML element.
     """
-    # Known skills from the CV
+    # Known skills from the CV — expanded to match JD technologies
     all_skills = [
         "Python", "PySpark", "SQL", "FastAPI", "Flask", "PostgreSQL",
         "MySQL", "Databricks", "Delta Lake", "Delta Live Tables", "Unity Catalog",
         "Docker", "Kubernetes", "GitHub Actions", "CI/CD", "AWS", "GCP", "Azure",
-        "LangChain", "Pydantic", "FAISS", "ChromaDB", "Pinecone", "Neo4j",
+        "LangChain", "LangGraph", "Semantic Kernel", "LlamaIndex", "DSPy", "RAGAS",
+        "Pydantic", "FAISS", "ChromaDB", "Pinecone", "Neo4j", "Weaviate", "pgvector", "Qdrant",
         "Snowflake", "Tableau", "pandas", "NumPy",
-        "PyTorch", "TensorFlow", "scikit-learn", "Hugging Face",
-        "ASR", "Whisper", "VAD", "Diarization", "Speech Recognition",
-        "RAG", "Retrieval-Augmented Generation", "BM25", "Vector Search",
-        "LLM Evaluation", "LLM-as-Judge", "Prompt Engineering",
+        "PyTorch", "TensorFlow", "JAX", "scikit-learn", "Hugging Face", "Transformers",
+        "ASR", "Whisper", "VAD", "Silero VAD", "Diarization", "Speech Recognition", "TTS",
+        "RAG", "Retrieval-Augmented Generation", "BM25", "Vector Search", "Vector Database",
+        "LLM Evaluation", "LLM-as-Judge", "Prompt Engineering", "RAGAS",
         "Agentic AI", "Multi-Agent Systems",
         "Sentiment Analysis", "Emotion Detection", "Intent Classification",
-        "Pyannote", "Silero VAD", "Emotion2vec", "GoEmotions",
+        "Pyannote", "Emotion2vec", "GoEmotions",
         "Unit Testing", "pytest", "Software Engineering",
+        "Git", "GitHub", "GraphQL", "REST APIs",
     ]
 
     # Match JD skills
@@ -316,11 +326,14 @@ def _inject_skills_section(doc, required_skills, secondary_skills):
 
     if target_para is not None:
         # Move each created paragraph to just before target_para.
-        # Insert in creation order so heading comes first, then subheadings,
-        # then bullets — each addprevious pushes earlier inserts further left.
+        # We insert one at a time, each time placing the new paragraph
+        # before the paragraph we just inserted (or before target for the
+        # first one). This preserves created_paras order with heading first.
         target_elem = target_para._element
+        prev_inserted = target_elem
         for cp in created_paras:
-            target_elem.addprevious(cp._element)
+            prev_inserted.addprevious(cp._element)
+            prev_inserted = cp._element
     # If no target found, paragraphs remain at end (acceptable fallback)
 
 
