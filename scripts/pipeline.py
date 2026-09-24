@@ -15,6 +15,7 @@ Requirements:
 """
 
 import argparse
+import csv
 import json
 import os
 import sys
@@ -187,6 +188,103 @@ def phase1_discover(query: str, max_jobs: int, output_dir: str) -> list[dict]:
 
     log(f"  Discovered {len(all_jobs)} jobs → {jobs_file}")
     return all_jobs
+
+
+# ── Dedup helper ─────────────────────────────────────────────────────────────
+
+def _collect_prior_applications_csvs(skill_applications_dir: str) -> list[str]:
+    """Return paths to every applications.csv under skill_applications_dir.
+
+    Walks recursively so cross-date dedup works regardless of --output-dir.
+    Returns an empty list when the tree is missing or contains no CSVs.
+    """
+    csv_paths = []
+    if not os.path.isdir(skill_applications_dir):
+        return csv_paths
+    for root, dirs, files in os.walk(skill_applications_dir):
+        # Prune hidden directories (e.g. .git) to avoid noise and permission errors.
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        if "applications.csv" in files:
+            csv_paths.append(os.path.join(root, "applications.csv"))
+    return csv_paths
+
+
+def _parse_prior_applications(csv_paths: list[str]) -> list[tuple[str, str]]:
+    """Return sorted unique (company, role) tuples for APPLIED jobs.
+
+    Reads each CSV with csv.DictReader.  A row counts as already-applied when
+    its status field (case-insensitive) contains "APPLIED" as a standalone
+    token or as a prefix before a slash (e.g. "APPLIED/INTERVIEWING").
+    Rows missing company or role are skipped silently.
+    """
+    applied: set[tuple[str, str]] = set()
+    for csv_path in csv_paths:
+        try:
+            with open(csv_path, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    company = (row.get("company") or "").strip()
+                    role = (row.get("role") or "").strip()
+                    if not company or not role:
+                        continue
+                    status = (row.get("status") or "").upper()
+                    # Match "APPLIED" exactly, or "APPLIED/..." (multi-stage).
+                    if status == "APPLIED" or status.startswith("APPLIED/"):
+                        applied.add((company.lower(), role.lower()))
+        except Exception:
+            # Corrupt or unreadable CSV — skip it, never crash the pipeline.
+            continue
+    return sorted(applied)
+
+
+def _dedup_prior_applications(
+    jobs: list[dict],
+    output_dir: str,
+) -> tuple[list[dict], list[dict]]:
+    """Remove jobs already present in a prior applications.csv (APPLIED status).
+
+    Looks for prior CSVs under the skill's own applications/ directory so that
+    dedup works across runs even when --output-dir points to a fresh date folder.
+    Falls back to the current output_dir when the skill tree is absent, and
+    degrades to no-op when no CSVs exist at all.
+
+    Returns (surviving_jobs, skipped_entries) where skipped_entries carry the
+    original job dict plus a 'reason' field for the skip report.
+    """
+    # Resolve the skill's applications tree (two levels up from scripts/).
+    skill_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    skill_applications = os.path.join(skill_root, "applications")
+
+    csv_paths = _collect_prior_applications_csvs(skill_applications)
+    if not csv_paths:
+        # Fall back to the current output dir so a rerun against the same folder
+        # still dedupes against its own tracker.
+        current_csv = os.path.join(output_dir, "applications.csv")
+        if os.path.isfile(current_csv):
+            csv_paths = [current_csv]
+
+    if not csv_paths:
+        return jobs, []
+
+    prior = _parse_prior_applications(csv_paths)
+    if not prior:
+        return jobs, []
+
+    survived = []
+    skipped = []
+    for job in jobs:
+        company = (job.get("company") or "").strip().lower()
+        role = (job.get("role") or "").strip().lower()
+        if not company or not role:
+            survived.append(job)
+            continue
+        key = (company, role)
+        if key in prior:
+            skipped.append({**job, "reason": "already_applied"})
+        else:
+            survived.append(job)
+
+    return survived, skipped
 
 
 # ── Phase 1b: GitHub Discover (supplementary) ──────────────────────────────
@@ -620,14 +718,20 @@ def main():
     parser = argparse.ArgumentParser(description="End-to-end Job Application Pipeline")
     parser.add_argument("--query", required=True, help="Job search query (e.g. 'AI engineer UAE')")
     parser.add_argument("--max-jobs", type=int, default=20, help="Maximum jobs to discover")
-    parser.add_argument("--output-dir", required=True, help="Output directory for all artifacts")
+    parser.add_argument("--output-dir", help="Output directory for all artifacts (auto-generated as applications/YYYY-MM-DD if not provided)")
     parser.add_argument("--cv", help="Path to base CV .docx (optional — skip render/match if omitted)")
     parser.add_argument("--github-repo", help="GitHub repo for tracking (e.g. OWNER/job-tracker)")
     parser.add_argument("--steps", help="Comma-separated phase numbers to run (default: all). e.g. '1,2,4'")
     parser.add_argument("--select", help="Comma-separated 1-based job numbers to select after discovery, e.g. '1,3,5'")
     args = parser.parse_args()
 
-    output_dir = args.output_dir
+    # Auto-generate date-based output_dir if not provided
+    if args.output_dir:
+        output_dir = args.output_dir
+    else:
+        # Default: applications/YYYY-MM-DD relative to project root
+        project_root = os.path.dirname(SCRIPT_DIR)  # Go up from scripts/ to project root
+        output_dir = os.path.join(project_root, "applications", DATE_STR)
     os.makedirs(output_dir, exist_ok=True)
 
     # Determine which phases to run
@@ -713,13 +817,31 @@ def main():
             json.dump(selected, f, indent=2)
         log(f"Selected {len(selected)} jobs → {selected_file}")
 
-    # Discovery is a review gate.  Leave the shortlist on disk and return cleanly
-    # until the caller supplies --select or creates selected_jobs.json.
-    if 1 in wanted and 2 in wanted and jobs and not os.path.exists(selected_file):
-        log("REVIEW REQUIRED: inspect discovered_jobs.json, then rerun with --steps 2,3,4,5,6,7,8 --select '1,3,5'.")
-        return
-
-    # Phase 2: Verify
+    # Discovery is a review gate.  Apply dedup first so the reviewer sees
+    # only genuinely new jobs, then leave the shortlist on disk and return
+    # cleanly until the caller supplies --select or creates selected_jobs.json.
+    if 1 in wanted and 2 in wanted and jobs:
+        if not os.path.exists(selected_file):
+            # ── Dedup against prior applications ──────────────────────────
+            # Skip any newly-discovered job whose (company, role) matches an
+            # already-APPLIED entry in a prior applications.csv.  Reads every
+            # applications.csv under the skill's applications/ tree (not just
+            # the current output dir) so cross-date dedup works regardless of
+            # --output-dir.  Falls back to the current output dir, then no-op.
+            jobs, skipped = _dedup_prior_applications(jobs, output_dir)
+            if skipped:
+                log(f"  Dedup: skipped {len(skipped)} already-applied job(s)")
+                skip_report = os.path.join(output_dir, "dedup_skipped.json")
+                with open(skip_report, "w") as sf:
+                    json.dump(skipped, sf, indent=2)
+                log(f"  Dedup report → {skip_report}")
+            # Rewrite discovered_jobs.json with the deduplicated list so the
+            # reviewer (and any later --select) sees only surviving jobs.
+            with open(os.path.join(output_dir, "discovered_jobs.json"), "w") as f:
+                json.dump({"query": args.query, "timestamp": DATE_STR, "total": len(jobs), "jobs": jobs}, f, indent=2)
+            log(f"  After dedup: {len(jobs)} jobs remain")
+            log("REVIEW REQUIRED: inspect discovered_jobs.json, then rerun with --steps 2,3,4,5,6,7,8 --select '1,3,5'.")
+            return
     if 2 in wanted:
         live_jobs = phase2_verify(output_dir)
     else:
