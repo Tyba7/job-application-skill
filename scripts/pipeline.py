@@ -126,6 +126,12 @@ def phase1_discover(query: str, max_jobs: int, output_dir: str) -> list[dict]:
         f"ML Engineer site:remotive.com",
         f"Applied AI Engineer site:remoterocketship.com",
         f"Machine Learning Engineer site:wellfound.com remote",
+        # Dice (US tech board — added per user request)
+        f"AI Engineer remote site:dice.com",
+        f"Machine Learning Engineer remote site:dice.com",
+        # CWJobs (UK tech board — added per user request)
+        f"AI Engineer remote site:cwjobs.co.uk",
+        f"Machine Learning Engineer remote site:cwjobs.co.uk",
         # Global remote boards (UK + US + international)
         f"AI Engineer remote site:remote.com",
         f"Machine Learning Engineer remote site:remote.com",
@@ -176,6 +182,12 @@ def phase1_discover(query: str, max_jobs: int, output_dir: str) -> list[dict]:
         "Remotive: ML Eng",
         "RemoteRocketship: Applied AI Eng",
         "Wellfound: ML Eng remote",
+        # Dice (US tech board — added per user request)
+        "Dice: AI Eng remote",
+        "Dice: ML Eng remote",
+        # CWJobs (UK tech board — added per user request)
+        "CWJobs: AI Eng remote",
+        "CWJobs: ML Eng remote",
         # ── Global ───────────────────────────────────────────────────────────
         "Remote.com: AI Eng remote",
         "Remote.com: ML Eng remote",
