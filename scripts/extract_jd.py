@@ -92,6 +92,11 @@ def extract_jd_from_url(url, company, role, platform):
         "required_skills": [],
         "full_jd": "",
         "extraction_source": "",
+        "signup_flow": "",  # sign-up instructions for annotation/training platforms
+        "assessment_required": False,
+        "assessment_hours_estimate": 0,
+        "pay_range": "",
+        "notes": "",
     }
 
     # Primary: direct extract

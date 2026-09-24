@@ -132,6 +132,12 @@ def phase1_discover(query: str, max_jobs: int, output_dir: str) -> list[dict]:
         # CWJobs (UK tech board — added per user request)
         f"AI Engineer remote site:cwjobs.co.uk",
         f"Machine Learning Engineer remote site:cwjobs.co.uk",
+        # Remote.co (UK/US remote board — added on user request)
+        f"AI Engineer site:remote.co",
+        f"Machine Learning Engineer site:remote.co",
+        # Glassdoor UK (added on user request — salary + reviews + job listings)
+        f"AI Engineer site:glassdoor.co.uk remote",
+        f"Machine Learning Engineer site:glassdoor.co.uk remote",
         # ── AI training & data annotation platforms (sign-up / test / match flow) ──
         # These are freelance gig platforms, not job boards with extractable JDs.
         # Their apply flow is sign-up → test → get matched. We include their
@@ -213,6 +219,12 @@ def phase1_discover(query: str, max_jobs: int, output_dir: str) -> list[dict]:
         # CWJobs (UK tech board — added per user request)
         "CWJobs: AI Eng remote",
         "CWJobs: ML Eng remote",
+        # Remote.co (UK/US remote board — added on user request)
+        "Remote.co: AI Eng",
+        "Remote.co: ML Eng",
+        # Glassdoor UK (added on user request — salary + reviews + job listings)
+        "Glassdoor UK: AI Eng remote",
+        "Glassdoor UK: ML Eng remote",
         # ── AI training & data annotation platforms ──────────────────────────────
         "DataAnnotation: signup",
         "Outlier AI: signup",
