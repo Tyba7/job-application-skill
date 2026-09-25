@@ -102,19 +102,48 @@ def check_formatting(cv_path):
         for p in doc.paragraphs
     )
 
-    # Count bullets (paragraphs with numPr)
-    bullets = sum(
-        1 for p in doc.paragraphs
-        if (pPr := p._element.find(qn("w:pPr"))) is not None
-        and pPr.find(qn("w:numPr")) is not None
-    )
+    # Count bullets (paragraphs with numPr — either explicit on the paragraph
+    # OR inherited from the paragraph's style, which is where List Bullet style
+    # places its numPr reference in python-docx-generated docs).
+    bullets = 0
+    for p in doc.paragraphs:
+        pPr = p._element.find(qn("w:pPr"))
+        explicit_numpr = pPr is not None and pPr.find(qn("w:numPr")) is not None
+        if explicit_numpr:
+            bullets += 1
+            continue
+        # Check style-inherited numPr: the List Bullet style places numPr in
+        # the style definition, not on each paragraph. Count paragraphs whose
+        # style references a numId.
+        style_id = None
+        if pPr is not None:
+            pStyle = pPr.find(qn("w:pStyle"))
+            if pStyle is not None:
+                style_id = pStyle.get(qn("w:val"))
+        if style_id:
+            # Look up style element by styleId in the styles part XML.
+            # get_by_id requires WD_STYLE_TYPE and is awkward; raw XML is direct.
+            styles_elem = doc.styles.element
+            style_elem = None
+            for s in styles_elem.findall(qn("w:style")):
+                if s.get(qn("w:styleId")) == style_id:
+                    style_elem = s
+                    break
+            if style_elem is not None:
+                style_pPr = style_elem.find(qn("w:pPr"))
+                if style_pPr is not None and style_pPr.find(qn("w:numPr")) is not None:
+                    bullets += 1
 
-    # Usable width in mm
-    section = doc.sections[0]
-    usable_mm = round(
-        (section.page_width - section.left_margin - section.right_margin)
-        / 36000, 1  # EMU to mm
-    )
+    # Usable width in mm — guard against docs with no explicit section
+    sections = doc.sections
+    if sections:
+        section = sections[0]
+        usable_mm = round(
+            (section.page_width - section.left_margin - section.right_margin)
+            / 36000, 1  # EMU to mm
+        )
+    else:
+        usable_mm = 0.0  # No section defined — can't measure; not a real problem
 
     # Paragraph count
     para_count = len(doc.paragraphs)
@@ -131,13 +160,22 @@ def check_formatting(cv_path):
     if doc.tables:
         flags.append(f"TABLES: {len(doc.tables)} table(s) found — may hurt ATS parsing")
 
-    # Headers/footers — ATS-unfriendly
-    for section in doc.sections:
-        if section.header.paragraphs or section.footer.paragraphs:
-            flags.append("HEADER_FOOTER: document has header/footer content")
+    # Headers/footers — ATS-unfriendly only if they contain actual text.
+    # Some freshly-rendered docs have 0 sections (no sectPr) — that's fine,
+    # skip the check when there are no sections to inspect.
+    if sections:
+        for section in sections:
+            header_has_text = any(p.text.strip() for p in section.header.paragraphs)
+            footer_has_text = any(p.text.strip() for p in section.footer.paragraphs)
+            if header_has_text or footer_has_text:
+                flags.append("HEADER_FOOTER: document has header/footer content")
 
-    # Usable width check — too wide or too narrow
-    if usable_mm < 150:
+    # Usable width check — too wide or too narrow.
+    # usable_mm == 0.0 means no explicit section (sectPr) in the docx, which is
+    # common in python-docx-generated files and not a real formatting problem.
+    if usable_mm > 0 and usable_mm < 150:
+        flags.append(f"WIDTH: usable width {usable_mm}mm is narrow — check margins")
+    elif usable_mm > 200:
         flags.append(f"WIDTH: usable width {usable_mm}mm is narrow — check margins")
     elif usable_mm > 200:
         flags.append(f"WIDTH: usable width {usable_mm}mm is wide — check margins")

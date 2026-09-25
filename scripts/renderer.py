@@ -131,25 +131,90 @@ def render_cv(base_cv_path, jd, output_path, company, role):
     jd_required = jd.get("required_skills", [])
     jd_secondary = jd.get("secondary_skills", [])
 
-    # ── 1. Adjust summary paragraph ──────────────────────────────────────────
+    # ── 1. Rewrite contact header block ──────────────────────────────────────
+    # Rewrite the first paragraphs (NAME, summary, contact line) of the base
+    # CV with a clean, well-formatted contact header:
+    #   NAME (large bold, Title Case) 
+    #   single-line contact row (phone | email | location | LinkedIn | GitHub)
+    #   summary paragraph (body text size, on its own line)
+    #
+    # Find the contact line (contains email), NAME line, and summary paragraph.
+    name_p = None
+    contact_p = None
+    summary_p = None
     for p in doc.paragraphs:
-        text = p.text
-        if text.startswith("Applied AI Engineer"):
-            jd_skill_str = jd_key_skill if jd_key_skill else "AI/ML systems"
-            new_summary = (
-                f"Applied AI Engineer specialising in {jd_skill_str} and production AI systems, "
-                f"based in Dubai, UAE. Currently targeting {jd_role} roles at {jd_company}. "
-                f"UAE Resident — no visa sponsorship required. Immediately available."
-            )
-            # Clear existing runs and set single run with new text
-            # (preserves paragraph-level formatting like alignment)
-            for r in p.runs:
-                r.text = ""
-            if p.runs:
-                p.runs[0].text = new_summary
-            else:
-                p.add_run(new_summary)
-            break
+        t = p.text.strip()
+        if t and "@" in t and ("gmail" in t or "hotmail" in t or "outlook" in t):
+            contact_p = p
+        elif t and t.upper() == t and len(t) < 40 and not "://" in t:
+            if name_p is None:
+                name_p = p
+        elif summary_p is None and t and ("Applied AI Engineer" in t 
+                or "specialising" in t or "specializing" in t
+                or "AI/ML systems" in t):
+            summary_p = p
+
+    phone = CANDIDATE.get("phone", "").strip()
+    email_addr = CANDIDATE.get("email", "").strip()
+    location = CANDIDATE.get("location", "").strip()
+    linkedin = CANDIDATE.get("linkedin", "").strip()
+    github = CANDIDATE.get("github", "").strip()
+
+    contact_parts = []
+    if phone:
+        contact_parts.append(phone)
+    if email_addr:
+        contact_parts.append(email_addr)
+    if location:
+        contact_parts.append(location)
+    if linkedin:
+        contact_parts.append(linkedin)
+    if github:
+        contact_parts.append(github)
+
+    contact_line = "  |  ".join(contact_parts)
+
+    name_size = float(CANDIDATE.get("name_size", 24))
+    contact_size = float(CANDIDATE.get("contact_size", 10))
+    body_size = 10.5
+
+    if name_p is not None:
+        # Rewrite NAME paragraph — Title Case, not ALL CAPS
+        name_display = NAME.strip().title() if NAME.strip().isupper() else NAME.strip()
+        for r in name_p.runs:
+            r.text = ""
+        if name_p.runs:
+            name_p.runs[0].text = name_display
+        else:
+            name_p.add_run(name_display)
+        for r in name_p.runs:
+            r.bold = True
+            r.font.size = Pt(name_size)
+            r.font.name = "Calibri"
+        name_p.paragraph_format.space_after = Pt(4)
+        name_p.paragraph_format.space_before = Pt(0)
+
+    if contact_p is not None and contact_line:
+        # Rewrite contact line paragraph
+        for r in contact_p.runs:
+            r.text = ""
+        if contact_p.runs:
+            contact_p.runs[0].text = contact_line
+        else:
+            contact_p.add_run(contact_line)
+        for r in contact_p.runs:
+            r.font.size = Pt(contact_size)
+            r.font.name = "Calibri"
+        contact_p.paragraph_format.space_after = Pt(6)
+        contact_p.paragraph_format.space_before = Pt(0)
+
+    if summary_p is not None:
+        # Ensure summary paragraph uses body text size, not heading size
+        for r in summary_p.runs:
+            r.font.size = Pt(body_size)
+            r.font.name = "Calibri"
+        summary_p.paragraph_format.space_after = Pt(8)
+        summary_p.paragraph_format.space_before = Pt(0)
 
     # ── 2. Reorder experience bullets FIRST ──────────────────────────────────
     _reorder_experience_bullets(doc, jd_required)
@@ -459,9 +524,17 @@ def _reorder_experience_bullets(doc, jd_required):
 # ── Cover Letter Renderer ──────────────────────────────────────────────────
 
 def render_cover_letter(jd, cv_evidence, output_path, company, role):
+    # If cv_evidence is None or empty, try loading match.json
+    if not cv_evidence:
+        import os as _os
+        match_path = _os.path.join(_os.path.dirname(output_path), "match.json")
+        if _os.path.exists(match_path):
+            with open(match_path) as _f:
+                cv_evidence = json.load(_f)
+    
     jd_company = jd.get("company", company)
     jd_role = jd.get("title", role)
-    jd_key_req = jd.get("primary_skill", "")
+    jd_key_req = jd.get("primary_skill") or (jd.get("required_skills") or [role])[0]
 
     gaps = cv_evidence.get("gaps", [])
     gap_text = ""
@@ -469,14 +542,21 @@ def render_cover_letter(jd, cv_evidence, output_path, company, role):
         gap = gaps[0]
         if isinstance(gap, dict):
             gap_skill = gap.get("skill", "a relevant technology")
-            gap_actual = gap.get("actual", "AWS/GCP")
-            gap_required = gap.get("required", "Azure")
+            # gap dict may use "required" as a boolean (from match_to_cv) — handle both
+            gap_required = gap.get("required")
+            if isinstance(gap_required, str):
+                pass  # use as-is
+            elif isinstance(gap_required, bool):
+                gap_required = gap_skill  # e.g. "Computer Vision" (the skill itself)
+            else:
+                gap_required = gap_skill
+            gap_actual = gap.get("actual", "production AI systems")
         else:
             gap_skill = str(gap)
-            gap_actual = "AWS/GCP"
+            gap_actual = "production AI systems"
             gap_required = str(gap)
         gap_text = (
-            f"My {gap_skill} experience has been with {gap_actual} "
+            f"My {gap_skill} experience has been primarily with {gap_actual} "
             f"rather than {gap_required}, though the underlying concepts "
             f"transfer directly."
         )
@@ -513,19 +593,44 @@ def render_cover_letter(jd, cv_evidence, output_path, company, role):
         section.top_margin = Inches(1.0)
         section.bottom_margin = Inches(1.0)
 
+    # ── Contact header block (NAME + phone/email/contact + date) ──────────────
+    phone = CANDIDATE.get("phone", "").strip()
+    email_addr = CANDIDATE.get("email", "").strip()
+    location = CANDIDATE.get("location", "").strip()
+    linkedin = CANDIDATE.get("linkedin", "").strip()
+    github = CANDIDATE.get("github", "").strip()
+
+    contact_parts = []
+    if phone:
+        contact_parts.append(phone)
+    if email_addr:
+        contact_parts.append(email_addr)
+    if location:
+        contact_parts.append(location)
+    if linkedin:
+        contact_parts.append(linkedin)
+    if github:
+        contact_parts.append(github)
+    contact_line = "  |  ".join(contact_parts)
+
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     r = p.add_run(f"{NAME}")
     set_run_font(r, size_pt=12, bold=True)
+    p.paragraph_format.space_after = Pt(2)
 
-    for line in [EMAIL, PHONE, LOCATION, LINKEDIN, GITHUB]:
+    if contact_line:
         p = doc.add_paragraph()
-        r = p.add_run(line)
+        r = p.add_run(contact_line)
         set_run_font(r, size_pt=10)
-        p.paragraph_format.space_after = Pt(0)
-        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after = Pt(2)
 
-    doc.add_paragraph()
+    if contact_line:
+        p = doc.add_paragraph()
+        r = p.add_run(contact_line)
+        set_run_font(r, size_pt=10)
+        p.paragraph_format.space_after = Pt(2)
+
     p = doc.add_paragraph()
     r = p.add_run(TODAY)
     set_run_font(r, size_pt=10)
@@ -558,7 +663,13 @@ def render_cover_letter(jd, cv_evidence, output_path, company, role):
 # ── README Renderer ────────────────────────────────────────────────────────
 
 def render_readme(jd, cv_evidence, output_path, company, role, apply_url):
-    fit_score = cv_evidence.get("fit_score", "UNKNOWN")
+    # If cv_evidence is None or has no fit_score, try loading from match.json
+    if not cv_evidence or not cv_evidence.get("fit_score"):
+        import os as _os
+        match_path = _os.path.join(_os.path.dirname(output_path), "match.json")
+        if _os.path.exists(match_path):
+            with open(match_path) as _f:
+                cv_evidence = json.load(_f)
     match_details = cv_evidence.get("match_details", [])
     gaps = cv_evidence.get("gaps", [])
     jd_key_skill = jd.get("primary_skill", role)
@@ -575,7 +686,7 @@ def render_readme(jd, cv_evidence, output_path, company, role, apply_url):
 
 ## Fit Analysis
 
-**Overall Fit:** {fit_score}
+**Overall Fit:** {cv_evidence.get("fit_score", "UNKNOWN")}
 
 ### Matches
 """
@@ -703,8 +814,16 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
 
+    # Load match data from match.json if it exists (produced by match_to_cv.py)
+    match_path = os.path.join(args.output_dir, "match.json")
+    if os.path.exists(match_path):
+        with open(match_path) as _f:
+            match_data = json.load(_f)
+    else:
+        match_data = {}
+    
     results = {}
-
+    
     safe_company = args.company
     safe_role = re.sub(r"[^a-zA-Z0-9]+", "_", args.role).strip("_")
     MAX_ROLE_LEN = 40
@@ -713,16 +832,18 @@ def main():
     cv_path = os.path.join(args.output_dir, f"{args.cv_name}_{safe_company}_{safe_role}.docx")
     render_cv(args.cv_base, jd, cv_path, args.company, args.role)
     results["cv"] = cv_path
-
-    cv_evidence = {
-        "gaps": jd.get("gaps", []),
-        "fit_score": jd.get("fit_score", "UNKNOWN"),
-        "match_details": jd.get("match_details", []),
-    }
+    
+    cv_evidence = match_data or {}
+    if not cv_evidence:
+        cv_evidence = {
+            "gaps": jd.get("gaps", []),
+            "fit_score": jd.get("fit_score", "UNKNOWN"),
+            "match_details": jd.get("match_details", []),
+        }
     cl_path = os.path.join(args.output_dir, f"CoverLetter_{safe_company}_{safe_role}.docx")
     render_cover_letter(jd, cv_evidence, cl_path, args.company, args.role)
     results["cover_letter"] = cl_path
-
+    
     readme_path = os.path.join(args.output_dir, "README.md")
     render_readme(jd, cv_evidence, readme_path, args.company, args.role, jd.get("apply_url", ""))
     results["readme"] = readme_path

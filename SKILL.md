@@ -240,6 +240,18 @@ python match_to_cv.py \
 
 **Gate:** Present fit scores. User selects which jobs to apply to. Low-fit jobs flagged but not automatically excluded.
 
+**Fallback when structured fields are empty:** Most `jd.json` files have an empty `secondary_skills` array and job-board extractors frequently leave `required_skills` sparse or empty. `_extract_skills_from_text()` scans the `full_jd` prose against a technology dictionary and a capitalized-chunk heuristic, then merges the results into the skill list used for matching. This runs regardless of whether structured fields are populated — the merged list is what gets passed to `compute_match` via `all_skills_override`. Do not rely on `required_skills` alone to decide whether to run extraction; always run it and deduplicate.
+
+**Fit score counting:** `fit_pct` counts both EXACT and PARTIAL matches toward the numerator. A skill found in the CV but not the codebase (or vice versa) is PARTIAL and contributes to the score. Only MISSING skills drag the score down. This prevents the common failure mode where a CV that clearly contains the skills still reports 0% because none of them happen to also appear in the codebase grep.
+
+**Skill extraction quality:** The `_extract_skills_from_text` stoplist (`_STOP_CHUNKS`) must be kept current as new job-board chrome appears. Aggregator pages (artificial.ae, remote.co, bayt.com) inject location strings, UI verbs, and concatenated tokens (e.g. "Abu Dhabimlposted") that look like proper nouns but are not skills. If extraction returns obviously bogus terms, extend the stoplist before re-running — not after. Filter layers that catch concatenated-noise tokens: drop any chunk containing a digit, any chunk shorter than 4 chars, any chunk where a stoplist word appears as a substring, and any single-token chunk with no tech-adjacent signal (no "ai", "ml", "llm", "rag", "nlp", "cv", "model", "engine", "cloud", "platform", etc. substring).
+
+**Fallback when structured fields are empty:** Most `jd.json` files have an empty `secondary_skills` array and job-board extractors frequently leave `required_skills` sparse or empty. `_extract_skills_from_text()` scans the `full_jd` prose against a technology dictionary and a capitalized-chunk heuristic, then merges the results into the skill list used for matching. This runs regardless of whether structured fields are populated — the merged list is what gets passed to `compute_match` via `all_skills_override`. Do not rely on `required_skills` alone to decide whether to run extraction; always run it and deduplicate.
+
+**Fit score counting:** `fit_pct` counts both EXACT and PARTIAL matches toward the numerator. A skill found in the CV but not the codebase (or vice versa) is PARTIAL and contributes to the score. Only MISSING skills drag the score down. This prevents the common failure mode where a CV that clearly contains the skills still reports 0% because none of them happen to also appear in the codebase grep.
+
+**Skill extraction quality:** The `_extract_skills_from_text` stoplist (`_STOP_CHUNKS`) must be kept current as new job-board chrome appears. Aggregator pages (artificial.ae, remote.co, bayt.com) inject location strings, UI verbs, and concatenated tokens (e.g. "Abu Dhabimlposted") that look like proper nouns but are not skills. If extraction returns obviously bogus terms, extend the stoplist before re-running — not after. Filter layers that catch concatenated-noise tokens: drop any chunk containing a digit, any chunk shorter than 4 chars, any chunk where a stoplist word appears as a substring, and any single-token chunk with no tech-adjacent signal (no "ai", "ml", "llm", "rag", "nlp", "cv", "model", "engine", "cloud", "platform", etc. substring).
+
 ---
 
 ### Tool 6: render — `scripts/renderer.py`
@@ -265,6 +277,10 @@ python renderer.py \
 - `jd.xlsx` — full JD + extracted fields (immutable archive)
 
 **Phone/contact:** Reads from `.app_config.json` (gitignored local config). See `config_template.json` for the structure.
+
+**Real phone + credentials from master CV:** `.app_config.json` can carry a `master_cv_path` key pointing at a master CV `.docx` (e.g. `applications/2026-09-18/CV_Tayyaba_Rizwan_AI_Engineer_Master.docx`). When set, `renderer._build_candidate()` parses that docx and extracts `phone`, `email`, `location`, `linkedin`, `github`, and `mbbs` from its paragraphs, merging them into the candidate dict and overriding the config defaults. Without `master_cv_path`, the phone falls back to the placeholder in `.app_config.json` (often `+971****8527`) and credentials like MBBS are absent from every rendered CV. Always set `master_cv_path` before rendering — verify the phone that flows through is a real number, not a placeholder, by reading one rendered CV's contact line after a test render.
+
+**Verification after render:** After rendering, spot-check at least one CV per batch: read its contact-line paragraph and confirm (a) phone is present and is a real number (no `****`), (b) MBBS or other credentials appear if they're in the master CV, (c) the name is Title Case not ALL CAPS, (d) email/LinkedIn/GitHub are on separate lines or a clean delimiter-separated row, not mashed into one paragraph.
 
 **Alternatives:**
 - For batch CV generation from master: `generate_cvs.py` (standalone, in vestwell_contact_center root)
