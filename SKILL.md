@@ -242,15 +242,13 @@ python match_to_cv.py \
 
 **Fallback when structured fields are empty:** Most `jd.json` files have an empty `secondary_skills` array and job-board extractors frequently leave `required_skills` sparse or empty. `_extract_skills_from_text()` scans the `full_jd` prose against a technology dictionary and a capitalized-chunk heuristic, then merges the results into the skill list used for matching. This runs regardless of whether structured fields are populated — the merged list is what gets passed to `compute_match` via `all_skills_override`. Do not rely on `required_skills` alone to decide whether to run extraction; always run it and deduplicate.
 
-**Fit score counting:** `fit_pct` counts both EXACT and PARTIAL matches toward the numerator. A skill found in the CV but not the codebase (or vice versa) is PARTIAL and contributes to the score. Only MISSING skills drag the score down. This prevents the common failure mode where a CV that clearly contains the skills still reports 0% because none of them happen to also appear in the codebase grep.
+**Fit score counting (corrected 2026-09-25):** `fit_pct` weights EXACT matches full and PARTIAL matches at half-weight (`(exact + 0.5*partial) / total`). Thresholds: HIGH >=75%, MEDIUM 50-74%, LOW <50%. The earlier full-weight-for-partial scheme inflated every score — a skill mentioned once anywhere counted the same as deep, verified production use.
 
-**Skill extraction quality:** The `_extract_skills_from_text` stoplist (`_STOP_CHUNKS`) must be kept current as new job-board chrome appears. Aggregator pages (artificial.ae, remote.co, bayt.com) inject location strings, UI verbs, and concatenated tokens (e.g. "Abu Dhabimlposted") that look like proper nouns but are not skills. If extraction returns obviously bogus terms, extend the stoplist before re-running — not after. Filter layers that catch concatenated-noise tokens: drop any chunk containing a digit, any chunk shorter than 4 chars, any chunk where a stoplist word appears as a substring, and any single-token chunk with no tech-adjacent signal (no "ai", "ml", "llm", "rag", "nlp", "cv", "model", "engine", "cloud", "platform", etc. substring).
+**Codebase evidence search is scoped and word-bounded (corrected 2026-09-25):** `check_codebase_evidence` uses `grep -rli -w` (case-insensitive, word-boundary) and excludes `.venv`, `.git`, `__pycache__`, `node_modules`, `.databricks`, and binary Office/PDF/image files. The old unscoped substring grep matched "AI" inside unrelated words, walked into `.venv` (19,928 files, caused timeouts), and picked up spurious hits on 2-3 letter tokens inside compressed `.docx`/`.pptx` byte streams. Always keep this exclusion list current if the codebase root gains new noise directories.
 
-**Fallback when structured fields are empty:** Most `jd.json` files have an empty `secondary_skills` array and job-board extractors frequently leave `required_skills` sparse or empty. `_extract_skills_from_text()` scans the `full_jd` prose against a technology dictionary and a capitalized-chunk heuristic, then merges the results into the skill list used for matching. This runs regardless of whether structured fields are populated — the merged list is what gets passed to `compute_match` via `all_skills_override`. Do not rely on `required_skills` alone to decide whether to run extraction; always run it and deduplicate.
+**LLM-as-judge guardrail (added 2026-09-25):** `llm_judge.py` reviews the JD prose, CV text, and the regex match matrix using Tayyaba's local free model (llama.cpp router at `http://127.0.0.1:18434/v1`, model `Qwen3.6-35B-A3B-UD-Q4_K_M`, no paid API). It catches what regex can't: role/title mismatches, visa/geography conflicts, shallow-vs-deep experience, and produces honest gaps a real interviewer would probe. `pipeline.py` phase5_match runs the judge automatically after the regex match and uses its verdict as the score of record (regex score kept as `fit_score_regex` audit trail). Set `chat_template_kwargs: {"enable_thinking": false}` in the request or the model burns its whole token budget on a `<think>` block and returns empty content — this was the #1 cause of `judge_available: false`. If the local model is down, the pipeline degrades to the regex score and logs it — never silently fabricates a verdict.
 
-**Fit score counting:** `fit_pct` counts both EXACT and PARTIAL matches toward the numerator. A skill found in the CV but not the codebase (or vice versa) is PARTIAL and contributes to the score. Only MISSING skills drag the score down. This prevents the common failure mode where a CV that clearly contains the skills still reports 0% because none of them happen to also appear in the codebase grep.
-
-**Skill extraction quality:** The `_extract_skills_from_text` stoplist (`_STOP_CHUNKS`) must be kept current as new job-board chrome appears. Aggregator pages (artificial.ae, remote.co, bayt.com) inject location strings, UI verbs, and concatenated tokens (e.g. "Abu Dhabimlposted") that look like proper nouns but are not skills. If extraction returns obviously bogus terms, extend the stoplist before re-running — not after. Filter layers that catch concatenated-noise tokens: drop any chunk containing a digit, any chunk shorter than 4 chars, any chunk where a stoplist word appears as a substring, and any single-token chunk with no tech-adjacent signal (no "ai", "ml", "llm", "rag", "nlp", "cv", "model", "engine", "cloud", "platform", etc. substring).
+**Skill extraction quality:** The `_extract_skills_from_text` stoplist (`_STOP_CHUNKS`) must be kept current as new job-board chrome appears. Aggregator pages (artificial.ae, remote.co, bayt.com) inject location strings, UI verbs, and concatenated tokens (e.g. "Abu Dhabimlposted") that look like proper nouns but are not skills. If extraction returns obviously bogus terms, extend the stoplist before re-running — not after.
 
 ---
 
@@ -329,11 +327,28 @@ python qa_check.py \
 
 ---
 
+### Tool 7b: mark_applied — `scripts/mark_applied.py`
+
+**What:** The ONLY way a company folder's status becomes APPLIED. Writes `APPLIED_ON.txt` into the company folder after the user explicitly confirms they submitted the application on the real job board.
+
+**Usage:**
+```bash
+python mark_applied.py --root applications/2026-09-25 --company "G42"
+python mark_applied.py --root applications/2026-09-25 --company "G42" --date 2026-09-24
+python mark_applied.py --root applications/2026-09-25 --company "G42" --unmark
+```
+
+**Rule:** Never run this without the user explicitly confirming they submitted. "I rendered the CV" or "the folder looks complete" is NOT confirmation — ask directly: "did you click submit on this one?" After marking, re-run track_applications.py to regenerate the CSV.
+
+---
+
 ### Tool 8: track_applications — `scripts/track_applications.py`
 
 **What:** Regenerate the applications.csv tracker from folder ground truth.
 
 **Rule:** Never append — always rebuild from what's actually on disk. A tracker written early in a session encodes stale state.
+
+**GUARDRAIL (2026-09-25):** APPLIED is never inferred from file presence. A prior version of this script promoted any folder with CV+CoverLetter+jd.xlsx+README to APPLIED — that only proves documents were rendered, not that the user submitted anything on the real job board. 33 companies were falsely marked APPLIED this way and had to be corrected. The status ceiling from files alone is now READY_TO_APPLY. The only way a row becomes APPLIED is an explicit `APPLIED_ON.txt` marker file inside the company folder, written by `mark_applied.py --root <date_dir> --company "<name>"` after the user confirms they actually clicked submit. Never call mark_applied.py on the user's behalf without them explicitly confirming submission — asking "did you submit this?" is mandatory before marking, never assume.
 
 **Usage:**
 ```bash
