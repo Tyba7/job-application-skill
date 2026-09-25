@@ -176,8 +176,6 @@ def check_formatting(cv_path):
     if usable_mm > 0 and usable_mm < 150:
         flags.append(f"WIDTH: usable width {usable_mm}mm is narrow — check margins")
     elif usable_mm > 200:
-        flags.append(f"WIDTH: usable width {usable_mm}mm is narrow — check margins")
-    elif usable_mm > 200:
         flags.append(f"WIDTH: usable width {usable_mm}mm is wide — check margins")
 
     return {

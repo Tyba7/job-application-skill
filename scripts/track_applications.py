@@ -28,27 +28,16 @@ from datetime import date
 
 TODAY = date.today().isoformat()
 
-# Status inference from folder contents
-STATUS_FROM_FILES = {
-    # No files at all
-    frozenset(): "DISCOVERED",
-    # Just a README (role identified but no docs)
-    frozenset(["README.md"]): "RESEARCHED",
-    # JD extracted
-    frozenset(["jd.xlsx"]): "EXTRACTED",
-    # JD + README
-    frozenset(["jd.xlsx", "README.md"]): "EXTRACTED",
-    # CV generated (CV_*.docx)
-    frozenset(["README.md"]): "RESEARCHED",  # CV present but tracker doesn't know the exact name
-}
-
-# Note: the STATUS_FROM_FILES table above uses exact filenames, but our renderer
-# produces CV_<Company>_<Role>.docx and CoverLetter_<Company>_<Role>.docx with
-# filesystem-safe names. The infer_status() function below handles the detection
-# by file prefix pattern rather than exact name matching.
-
-# Status override markers — if a folder contains a STATUS file, use it
+# Status override markers — if a folder contains a STATUS file, use it.
 STATUS_FILE = "status.txt"
+
+# GUARDRAIL: "APPLIED" is a claim about a real-world action (you clicked
+# submit on a job board). Rendered files on disk are NOT proof of that.
+# infer_status() therefore stops at READY_TO_APPLY once every artifact
+# exists — it never auto-promotes to APPLIED. The only way a row becomes
+# APPLIED is an explicit marker file (APPLIED_ON.txt, containing an ISO
+# date) written by mark_applied.py after you confirm you actually submitted.
+APPLIED_MARKER_FILE = "APPLIED_ON.txt"
 
 
 def has_cv(files):
@@ -61,10 +50,18 @@ def has_cover_letter(files):
 
 
 def infer_status(files):
-    """Infer application status from the set of files in a folder."""
+    """Infer application status from the set of files in a folder.
+
+    Ground truth rule: file presence proves documents were RENDERED, not
+    that you APPLIED. APPLIED requires the explicit APPLIED_ON.txt marker
+    (see mark_applied.py) — never inferred from CV/CL/JD/README alone.
+    """
     # Check for explicit status file first
     if STATUS_FILE in files:
         return "CUSTOM"
+
+    if APPLIED_MARKER_FILE in files:
+        return "APPLIED"
 
     cv = has_cv(files)
     cl = has_cover_letter(files)
@@ -72,7 +69,7 @@ def infer_status(files):
     has_readme = "README.md" in files
 
     if cv and cl and has_jd and has_readme:
-        return "APPLIED"
+        return "READY_TO_APPLY"
     if cv and cl:
         return "QA-PASS"
     if cv:

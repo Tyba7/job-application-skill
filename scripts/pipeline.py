@@ -665,7 +665,17 @@ def phase4_extract(live_jobs: list[dict], output_dir: str) -> list[dict]:
 # ── Phase 5: Match to CV ────────────────────────────────────────────────────
 
 def phase5_match(jd_results: list[dict], output_dir: str, cv_path: str = None) -> list[dict]:
-    """Match each JD to the CV."""
+    """Match each JD to the CV.
+
+    Two-stage: (1) fast regex/grep match_to_cv.py for cheap coverage,
+    (2) LLM-as-judge (llm_judge.py, local free model) reviews the JD prose
+    + CV text + regex hints and produces the fit score actually used
+    downstream. The LLM judge exists because regex keyword presence
+    over-counts shallow mentions as full matches — see match_to_cv.py
+    docstring history. If the local model is unreachable, the LLM stage
+    degrades gracefully and the regex score is used as-is (never silently
+    substitutes a fabricated number — judge_available=False is recorded).
+    """
     log(f"Phase 5: Matching {len(jd_results)} JDs to CV")
 
     if not cv_path or not os.path.exists(cv_path):
@@ -675,7 +685,7 @@ def phase5_match(jd_results: list[dict], output_dir: str, cv_path: str = None) -
         return jd_results
 
     script = os.path.join(SCRIPT_DIR, "match_to_cv.py")
-    match_results = []
+    judge_script = os.path.join(SCRIPT_DIR, "llm_judge.py")
 
     for i, jd_r in enumerate(jd_results):
         jd = jd_r.get("jd")
@@ -686,6 +696,7 @@ def phase5_match(jd_results: list[dict], output_dir: str, cv_path: str = None) -
         company_dir = os.path.join(output_dir, jd_r.get("company_dir", ""))
         jd_json = os.path.join(company_dir, "jd.json")
         match_file = os.path.join(company_dir, "match.json")
+        judge_file = os.path.join(company_dir, "llm_judge.json")
 
         # Write JD to temp file for the script
         with open(jd_json, "w") as f:
@@ -704,11 +715,43 @@ def phase5_match(jd_results: list[dict], output_dir: str, cv_path: str = None) -
                 with open(match_file) as f:
                     match_data = json.load(f)
                 jd_r["match"] = match_data
-                log(f"    fit={match_data.get('fit_score', '?')}")
+                log(f"    regex fit={match_data.get('fit_score', '?')}")
             else:
                 jd_r["match"] = {"fit_score": "ERROR", "note": result.stderr[:200]}
+                continue
         except Exception as e:
             jd_r["match"] = {"fit_score": "ERROR", "note": str(e)}
+            continue
+
+        # ── LLM-as-judge guardrail ──────────────────────────────────────
+        # Local model only, no paid API. Generous timeout — reasoning model.
+        try:
+            judge_result = subprocess.run(
+                [sys.executable, judge_script, "--jd-json", jd_json,
+                 "--cv", cv_path, "--match", match_file, "--output", judge_file],
+                capture_output=True, text=True, timeout=180,
+                cwd=SCRIPT_DIR
+            )
+            if os.path.exists(judge_file):
+                with open(judge_file) as f:
+                    judge_data = json.load(f)
+                jd_r["llm_judge"] = judge_data
+                if judge_data.get("judge_available"):
+                    # LLM judge is the score of record; regex stays in
+                    # jd_r["match"] as an audit trail.
+                    jd_r["match"]["fit_score_regex"] = jd_r["match"].get("fit_score")
+                    jd_r["match"]["fit_score"] = judge_data["fit_score"]
+                    jd_r["match"]["fit_label"] = judge_data["fit_label"]
+                    jd_r["match"]["fit_pct"] = judge_data["fit_pct"]
+                    jd_r["match"]["gaps"] = [{"skill": g, "note": g, "required": True} for g in judge_data.get("gaps", [])]
+                    log(f"    LLM-judge fit={judge_data['fit_score']} (regex was {jd_r['match']['fit_score_regex']})")
+                else:
+                    log(f"    LLM-judge unavailable ({judge_data.get('error', '?')[:80]}) — using regex score")
+            else:
+                jd_r["llm_judge"] = {"judge_available": False, "error": judge_result.stderr[:200]}
+        except Exception as e:
+            jd_r["llm_judge"] = {"judge_available": False, "error": str(e)}
+            log(f"    LLM-judge failed: {str(e)[:80]} — using regex score")
 
     return jd_results
 

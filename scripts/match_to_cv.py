@@ -44,6 +44,10 @@ def check_codebase_evidence(codebase_root, skill_keywords):
     """
     Search the codebase for evidence of claimed skills.
     Returns dict: skill -> (found: bool, location: str)
+
+    Uses grep -w (word boundary) so short/common skill tokens (e.g. "AI",
+    "CV", "Go") don't match as substrings of unrelated words — the old
+    plain-substring grep produced false EXACT matches on nearly every file.
     """
     if not codebase_root or not os.path.isdir(codebase_root):
         return {k: (False, "no codebase") for k in skill_keywords}
@@ -51,9 +55,8 @@ def check_codebase_evidence(codebase_root, skill_keywords):
     results = {}
     for skill in skill_keywords:
         found_files = []
-        # Search for the skill name and common variants
-        patterns = [skill.lower()]
         # Add common variant patterns
+        patterns = [skill.lower()]
         if "pytorch" in skill.lower():
             patterns.append("torch")
         if "tensorflow" in skill.lower():
@@ -72,9 +75,37 @@ def check_codebase_evidence(codebase_root, skill_keywords):
             patterns.append("kubectl")
 
         for pattern in patterns:
+            # Multi-word phrases can't use -w (grep treats the whole pattern
+            # as one word-boundary unit, which is fine); single short tokens
+            # (<=3 chars, alnum only) get -w to avoid substring false hits.
+            use_word_boundary = re.fullmatch(r"[a-z0-9]+", pattern) is not None
+            # Exclude noise directories: .venv/.git/__pycache__/.pytest_cache
+            # contain tens of thousands of third-party files that are NOT
+            # Tayyaba's code — grepping them made every match_to_cv.py run
+            # time out (19,928 files in .venv alone) and produced false
+            # "evidence" for skills that only appear in library internals.
+            # Also exclude Office binary formats (.docx/.pptx/.xlsx): grep
+            # matches raw zip/XML byte sequences inside them for short
+            # 2-3 letter tokens ("Go", "RL", "PR", "CI") which is spurious
+            # — a substring hit inside a compressed binary is not evidence
+            # the skill was actually used in code.
+            grep_args = [
+                "grep", "-rli",
+                "--exclude-dir=.venv", "--exclude-dir=venv",
+                "--exclude-dir=.git", "--exclude-dir=__pycache__",
+                "--exclude-dir=.pytest_cache", "--exclude-dir=node_modules",
+                "--exclude-dir=.databricks",
+                "--exclude=*.docx", "--exclude=*.pptx", "--exclude=*.xlsx",
+                "--exclude=*.doc", "--exclude=*.ppt", "--exclude=*.xls",
+                "--exclude=*.pdf", "--exclude=*.zip", "--exclude=*.png",
+                "--exclude=*.jpg", "--exclude=*.jpeg",
+            ]
+            if use_word_boundary:
+                grep_args.append("-w")
+            grep_args += [pattern, codebase_root]
             try:
                 result = subprocess.run(
-                    ["grep", "-rl", pattern, codebase_root],
+                    grep_args,
                     capture_output=True, text=True, timeout=30
                 )
                 if result.returncode == 0 and result.stdout.strip():
@@ -155,10 +186,10 @@ def compute_match(cv_text, jd, codebase_evidence, all_skills_override=None):
             "required": in_required,
         })
 
-    fit_pct = round((exact_count + partial_count) / total_count * 100) if total_count > 0 else 0
-    if fit_pct >= 80:
+    fit_pct = round((exact_count + 0.5 * partial_count) / total_count * 100) if total_count > 0 else 0
+    if fit_pct >= 75:
         fit_label = "HIGH"
-    elif fit_pct >= 60:
+    elif fit_pct >= 50:
         fit_label = "MEDIUM"
     else:
         fit_label = "LOW"

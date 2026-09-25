@@ -259,23 +259,68 @@ def _inject_skills_section(doc, required_skills, secondary_skills):
     registered in doc.paragraphs, then moves them to the correct position
     via lxml's addprevious() on the target paragraph's XML element.
     """
-    # Known skills from the CV — expanded to match JD technologies
+    # Known skills from the CV — sourced from CV_HOLISTIC_MASTER.md "Core
+    # Competencies" section (all categories) so tailored CVs can surface the
+    # full depth of the real ATS keyword bank, not just a ~70-term subset.
     all_skills = [
-        "Python", "PySpark", "SQL", "FastAPI", "Flask", "PostgreSQL",
-        "MySQL", "Databricks", "Delta Lake", "Delta Live Tables", "Unity Catalog",
-        "Docker", "Kubernetes", "GitHub Actions", "CI/CD", "AWS", "GCP", "Azure",
-        "LangChain", "LangGraph", "Semantic Kernel", "LlamaIndex", "DSPy", "RAGAS",
-        "Pydantic", "FAISS", "ChromaDB", "Pinecone", "Neo4j", "Weaviate", "pgvector", "Qdrant",
-        "Snowflake", "Tableau", "pandas", "NumPy",
-        "PyTorch", "TensorFlow", "JAX", "scikit-learn", "Hugging Face", "Transformers",
-        "ASR", "Whisper", "VAD", "Silero VAD", "Diarization", "Speech Recognition", "TTS",
-        "RAG", "Retrieval-Augmented Generation", "BM25", "Vector Search", "Vector Database",
-        "LLM Evaluation", "LLM-as-Judge", "Prompt Engineering", "RAGAS",
-        "Agentic AI", "Multi-Agent Systems",
-        "Sentiment Analysis", "Emotion Detection", "Intent Classification",
-        "Pyannote", "Emotion2vec", "GoEmotions",
-        "Unit Testing", "pytest", "Software Engineering",
-        "Git", "GitHub", "GraphQL", "REST APIs",
+        # Gen-AI & LLM Systems
+        "RAG", "Hybrid Retrieval", "BM25", "BGE-M3", "SPLADE", "RRF",
+        "Cross-Encoder Reranking", "Contextual Retrieval", "Agentic AI",
+        "LLM-as-Judge", "Multi-Provider LLM Routing", "Prompt Engineering",
+        "LangChain", "LangGraph", "LlamaIndex", "CrewAI", "AutoGen",
+        "Hugging Face", "Pydantic", "Pydantic v2", "LiteLLM",
+        "Model Routing", "LLM Governance", "Structured Outputs",
+        "Context Engineering", "Token Optimization", "Embeddings",
+        "Local LLM Deployment", "Prompt Caching",
+        # Voice & Conversational AI
+        "ASR", "Whisper", "faster-whisper", "CTranslate2", "AssemblyAI",
+        "Deepgram", "NVIDIA NeMo", "Parakeet", "WER", "jiwer",
+        "Speaker Diarization", "Pyannote", "VAD", "Silero VAD",
+        "Semantic Endpoint", "BART-NLI", "BART-MNLI", "Transcript Enrichment",
+        "GoEmotions", "EmoBERTa", "emotion2vec", "j-hartmann",
+        "MiniLM", "MIDLM", "LARA Intent", "Predicted CSAT", "FCR",
+        "Streaming pCSAT", "Mamba", "Mamba-2", "SSM", "Peak-End Pooling",
+        "Conformal Prediction", "Arabic NLP", "Sentiment Analysis",
+        "WebRTC", "Voice APIs", "Bayesian ASR Rescoring",
+        "Dialogue State Tracking", "Audio Preprocessing",
+        # Data & Pipelines
+        "Databricks", "Delta Live Tables", "Delta Lake", "Change Data Feed",
+        "Unity Catalog", "PySpark", "Spark SQL", "Manifest-Driven Orchestration",
+        "Incremental Refresh", "Watermarks", "SQL Code Generation",
+        "Feature Engineering", "KPI Pipelines", "Snapshot History",
+        "Kimball", "SCD1", "SCD2", "Hevo", "Silver/Gold Architecture",
+        "Zendesk API", "Survicate", "Channel Taxonomy", "SQL Testing",
+        "Infrastructure-as-Code",
+        # Vector / Graph DBs
+        "ChromaDB", "Pinecone", "FAISS", "Neo4j", "Weaviate", "Qdrant",
+        "pgvector", "Vector Database", "Vector Search",
+        # Backend & APIs
+        "Python", "SQL", "Flask", "FastAPI", "MS SQL", "MySQL",
+        "PostgreSQL", "TypeScript", "Node.js", "Go", "REST APIs",
+        "WebSockets", "SDK Development", "Async Python",
+        "Amazon Connect CTR", "Contact Lens", "Cross-Modal Validation",
+        "Async Merge Buffers", "Content Hash Dedup", "Edit Distance Clustering",
+        "Parser Confidence Modeling", "Thompson Sampling",
+        # MLOps / CI-CD
+        "Databricks Asset Bundles", "GitHub Actions", "Docker", "Kubernetes",
+        "pytest", "MLflow", "CI/CD", "Model Logging", "Experiment Management",
+        "HuggingFace Model Caching", "Lazy Model Loading",
+        "Golden Dataset", "Evaluation Framework Design",
+        # Cloud
+        "AWS", "Google Cloud Platform", "GCP", "Azure",
+        # BI & Analytics
+        "Tableau", "BI Dashboard Design", "KPI Definition", "Time-Series",
+        "Operational Analytics",
+        # QC & Evaluation
+        "17-Dimension Rubric", "Bayesian Aggregation", "Human-in-the-Loop",
+        "ASR Evaluation", "Call Quality Scoring", "Intent Classification",
+        "Prompt Injection Detection", "PII Detection",
+        "Deterministic Scoring", "Pre-Batch Cost Estimation",
+        # General / framework terms retained for backward-compat matching
+        "PyTorch", "TensorFlow", "JAX", "scikit-learn", "Transformers",
+        "Snowflake", "pandas", "NumPy", "Diarization", "TTS",
+        "Emotion Detection", "Multi-Agent Systems", "Git", "GitHub",
+        "GraphQL", "Unit Testing", "Software Engineering",
     ]
 
     # Match JD skills
@@ -618,12 +663,6 @@ def render_cover_letter(jd, cv_evidence, output_path, company, role):
     r = p.add_run(f"{NAME}")
     set_run_font(r, size_pt=12, bold=True)
     p.paragraph_format.space_after = Pt(2)
-
-    if contact_line:
-        p = doc.add_paragraph()
-        r = p.add_run(contact_line)
-        set_run_font(r, size_pt=10)
-        p.paragraph_format.space_after = Pt(2)
 
     if contact_line:
         p = doc.add_paragraph()
