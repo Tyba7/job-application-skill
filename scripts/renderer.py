@@ -587,24 +587,39 @@ def render_cover_letter(jd, cv_evidence, output_path, company, role):
         gap = gaps[0]
         if isinstance(gap, dict):
             gap_skill = gap.get("skill", "a relevant technology")
-            # gap dict may use "required" as a boolean (from match_to_cv) — handle both
-            gap_required = gap.get("required")
-            if isinstance(gap_required, str):
-                pass  # use as-is
-            elif isinstance(gap_required, bool):
-                gap_required = gap_skill  # e.g. "Computer Vision" (the skill itself)
-            else:
-                gap_required = gap_skill
-            gap_actual = gap.get("actual", "production AI systems")
+            gap_note = gap.get("note", "")
         else:
             gap_skill = str(gap)
-            gap_actual = "production AI systems"
-            gap_required = str(gap)
-        gap_text = (
-            f"My {gap_skill} experience has been primarily with {gap_actual} "
-            f"rather than {gap_required}, though the underlying concepts "
-            f"transfer directly."
-        )
+            gap_note = ""
+
+        # Gaps come from two sources with very different shapes:
+        #  (a) match_to_cv.py (regex): short skill name, e.g. "Kubernetes"
+        #      → build the "My X experience has been primarily with Y
+        #        rather than Z" template.
+        #  (b) llm_judge.py (via pipeline.py phase5_match): a full natural-
+        #      language sentence already explaining the gap, e.g. "No
+        #      mention of JavaScript or TypeScript proficiency...". Feeding
+        #      that into the short-skill template produced nonsense like
+        #      "My <full sentence> experience has been primarily with
+        #      production AI systems rather than <full sentence>". Detect
+        #      by length and use the LLM sentence directly instead.
+        is_full_sentence = len(gap_skill.split()) > 6 or gap_skill.endswith((".", "!"))
+        if is_full_sentence:
+            # Use the sentence itself; make it a candid one-line acknowledgment.
+            sentence = gap_note or gap_skill
+            sentence = sentence.rstrip(".") + "."
+            gap_text = (
+                f"One area I would want to address directly: {sentence[0].lower()}{sentence[1:]} "
+                f"I see this as a fast ramp-up given the adjacent skills already in production, "
+                f"not a fundamental gap."
+            )
+        else:
+            gap_actual = gap.get("actual", "production AI systems") if isinstance(gap, dict) else "production AI systems"
+            gap_text = (
+                f"My {gap_skill} experience has been primarily with {gap_actual} "
+                f"rather than direct hands-on {gap_skill} deployment, though the "
+                f"underlying concepts transfer directly."
+            )
 
     para1 = (
         f"I am writing to apply for the {jd_role} position at {jd_company}. "
