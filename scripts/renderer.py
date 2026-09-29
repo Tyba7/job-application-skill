@@ -146,12 +146,14 @@ def render_cv(base_cv_path, jd, output_path, company, role):
         t = p.text.strip()
         if t and "@" in t and ("gmail" in t or "hotmail" in t or "outlook" in t):
             contact_p = p
-        elif t and t.upper() == t and len(t) < 40 and not "://" in t:
-            if name_p is None:
-                name_p = p
-        elif summary_p is None and t and ("Applied AI Engineer" in t 
-                or "specialising" in t or "specializing" in t
-                or "AI/ML systems" in t):
+        elif t and len(t) < 35 and len(t) > 3 and not "://" in t and ":" not in t and not t.startswith("http"):
+            # Accept: Title Case names OR ALL-CAPS names (both are valid)
+            if (t != t.upper() and t == t.title()) or (t == t.upper() and t.lower() != t.upper()):
+                if name_p is None:
+                    name_p = p
+        elif (t and len(t) > 50 and "://" not in t and t.lower() != t
+            and ("years building" in t.lower() or "years in" in t.lower() or "years of" in t.lower())):
+            # Prefer the summary paragraph that starts with role + "years" over keyword sections
             summary_p = p
 
     phone = CANDIDATE.get("phone", "").strip()
@@ -209,10 +211,30 @@ def render_cv(base_cv_path, jd, output_path, company, role):
         contact_p.paragraph_format.space_before = Pt(0)
 
     if summary_p is not None:
-        # Ensure summary paragraph uses body text size, not heading size
-        for r in summary_p.runs:
-            r.font.size = Pt(body_size)
-            r.font.name = "Calibri"
+        # Rewrite the first sentence to reference target company + role
+        current_text = summary_p.text
+        jd_company = jd.get("company", company)
+        jd_role = jd.get("role", role)
+        
+        # Replace "Applied AI Engineer with" at the start with the tailored version
+        if current_text.startswith("Applied AI Engineer with"):
+            new_text = f"{jd_role} with"
+            current_text = current_text.replace("Applied AI Engineer with", new_text, 1)
+            # Set all runs to empty, then write new text
+            for r in summary_p.runs:
+                r.text = ""
+            if summary_p.runs:
+                summary_p.runs[0].text = current_text
+            else:
+                summary_p.add_run(current_text)
+            for r in summary_p.runs:
+                r.font.size = Pt(body_size)
+                r.font.name = "Calibri"
+        else:
+            # Just ensure correct font size for the summary
+            for r in summary_p.runs:
+                r.font.size = Pt(body_size)
+                r.font.name = "Calibri"
         summary_p.paragraph_format.space_after = Pt(8)
         summary_p.paragraph_format.space_before = Pt(0)
 
