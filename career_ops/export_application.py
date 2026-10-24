@@ -20,12 +20,12 @@ slug = lambda s: re.sub(r"[^A-Za-z0-9-]+", "", s)  # "Vatic Labs" -> "VaticLabs"
 
 
 def next_code(market):
-    """Highest existing <market>-<n> anywhere in the tracker or folder names, plus one."""
+    """Highest existing <market>-<n> in the tracker or job folder names, plus one (file names skipped: one stray UAE-100 cover letter exists)."""
     nums = [0]
     for row in csv.DictReader(open(CSV, encoding="utf-8")):
         nums += [int(n) for n in re.findall(rf"{market}-(\d+)", " ".join(row.values()))]
     for _, dirs, files in os.walk(HERE):
-        nums += [int(n) for name in dirs + files for n in re.findall(rf"{market}-(\d+)", name)]
+        nums += [int(n) for name in dirs for n in re.findall(rf"{market}-(\d+)", name)]
     return f"{market}-{max(nums) + 1:02d}"
 
 
@@ -42,7 +42,7 @@ def main():
     row = next((r for r in rows if norm(r["Company"]) == norm(a.company) and norm(r["Job Title"]) == norm(a.role)), None)
     if row is None:
         raise SystemExit(f"No tracker row for {a.company} | {a.role}. Run sync_career_ops.py --write first.")
-    existing = re.search(r"(UAE|REM|KSA)-\d+", row["CV File"] or "")
+    existing = re.search(r"(UAE|REM|KSA|QAT)-\d+", row["CV File"] or "")
     code = existing.group(0) if existing else next_code(a.market)
 
     d = datetime.date.fromisoformat(a.date)
